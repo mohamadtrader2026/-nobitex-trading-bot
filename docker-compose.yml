@@ -1,0 +1,14 @@
+services:
+  nobitex-bot:
+    build: .
+    container_name: nobitex-trading-bot
+    restart: unless-stopped
+    environment:
+      NOBITEX_API_ENV: ${NOBITEX_API_ENV:-testnet}
+      NOBITEX_TEST_MODE: ${NOBITEX_TEST_MODE:-true}
+      NOBITEX_API_TOKEN: ${NOBITEX_API_TOKEN:-}
+    volumes:
+      - bot_state:/app
+
+volumes:
+  bot_state:
