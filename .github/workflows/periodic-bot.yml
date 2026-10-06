@@ -2,7 +2,10 @@ name: Nobitex Periodic Bot
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "17 0 * * *"
+    - cron: "17 6 * * *"
+    - cron: "17 12 * * *"
+    - cron: "17 18 * * *"
   workflow_dispatch:
   push:
     branches: ["main"]
@@ -14,11 +17,11 @@ concurrency:
 jobs:
   periodic-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 360
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "180"
+      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
 
     steps:
       - name: Checkout
