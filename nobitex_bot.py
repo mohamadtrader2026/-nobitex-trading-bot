@@ -28,6 +28,7 @@ TAKE_PROFIT = 0.04
 CHECK_SECONDS = 10
 ORDER_POLL_SECONDS = 2
 ORDER_POLL_ATTEMPTS = 15
+MAX_RUNTIME_SECONDS = int(os.getenv("NOBITEX_MAX_RUNTIME_SECONDS", "0"))
 
 # Safe by default. Testnet is the default environment and TEST_MODE stays enabled.
 # Live trading requires BOTH NOBITEX_API_ENV=mainnet and NOBITEX_TEST_MODE=false.
@@ -166,6 +167,7 @@ def place_order(order_type, amount, price):
 def run_bot():
     prices = []
     state = load_state()
+    started_at = time.monotonic()
 
     print("================================")
     print("   NOBITEX TRADING BOT")
@@ -179,6 +181,10 @@ def run_bot():
     print("--------------------------------")
 
     while True:
+        if MAX_RUNTIME_SECONDS > 0 and time.monotonic() - started_at >= MAX_RUNTIME_SECONDS:
+            save_state(state)
+            print("⏹️ زمان این نوبت تمام شد؛ وضعیت ذخیره شد.")
+            break
         try:
             price = get_latest_price()
             prices.append(price)
@@ -242,6 +248,7 @@ def run_bot():
             time.sleep(CHECK_SECONDS)
 
         except KeyboardInterrupt:
+            save_state(state)
             print("ربات متوقف شد.")
             break
         except Exception as e:
