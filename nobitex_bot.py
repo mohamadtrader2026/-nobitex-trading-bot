@@ -4,8 +4,16 @@ import uuid
 import requests
 from statistics import mean
 
-PUBLIC_API_BASE = "https://apiv2.nobitex.ir"
-TRADE_API_BASE = "https://api.nobitex.ir"
+API_ENV = os.getenv("NOBITEX_API_ENV", "testnet").lower()
+
+if API_ENV == "testnet":
+    PUBLIC_API_BASE = "https://testnetapi.nobitex.ir"
+    TRADE_API_BASE = "https://testnetapi.nobitex.ir"
+elif API_ENV == "mainnet":
+    PUBLIC_API_BASE = "https://apiv2.nobitex.ir"
+    TRADE_API_BASE = "https://api.nobitex.ir"
+else:
+    raise RuntimeError("NOBITEX_API_ENV باید testnet یا mainnet باشد.")
 
 SRC_CURRENCY = "btc"
 DST_CURRENCY = "rls"
@@ -21,7 +29,8 @@ CHECK_SECONDS = 10
 ORDER_POLL_SECONDS = 2
 ORDER_POLL_ATTEMPTS = 15
 
-# Safe by default. Set NOBITEX_TEST_MODE=false only when you explicitly want live trading.
+# Safe by default. Testnet is the default environment and TEST_MODE stays enabled.
+# Live trading requires BOTH NOBITEX_API_ENV=mainnet and NOBITEX_TEST_MODE=false.
 TEST_MODE = os.getenv("NOBITEX_TEST_MODE", "true").lower() == "true"
 API_TOKEN = os.getenv("NOBITEX_API_TOKEN")
 STATE_FILE = "bot_state.json"
@@ -161,6 +170,7 @@ def run_bot():
     print("================================")
     print("   NOBITEX TRADING BOT")
     print("================================")
+    print("محیط API:", API_ENV)
     print("حالت فعلی:", "آزمایشی" if TEST_MODE else "واقعی")
     if TEST_MODE:
         print("هیچ خرید یا فروش واقعی انجام نمی‌شود.")
