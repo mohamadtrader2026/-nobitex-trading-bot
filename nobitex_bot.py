@@ -188,8 +188,6 @@ def run_bot():
             long_ma = mean(prices[-LONG_WINDOW:])
 
             crossed_up = previous_short <= previous_long and short_ma > long_ma
-            crossed_down = previous_short >= previous_long and short_ma < long_ma
-
             print(f"MA کوتاه: {short_ma:,.0f} | MA بلند: {long_ma:,.0f}")
 
             if not state["in_position"] and crossed_up:
