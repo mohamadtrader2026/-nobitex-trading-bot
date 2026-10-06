@@ -2,6 +2,8 @@ name: Nobitex Testnet Check
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main"]
 
 jobs:
   testnet-check:
