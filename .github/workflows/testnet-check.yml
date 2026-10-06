@@ -1,0 +1,39 @@
+name: Nobitex Testnet Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  testnet-check:
+    runs-on: ubuntu-latest
+    env:
+      NOBITEX_API_ENV: testnet
+      NOBITEX_TEST_MODE: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run safe bot tests
+        run: python test_bot_safe.py
+
+      - name: Check Nobitex Testnet public API
+        run: |
+          python - <<'PY'
+          import requests
+          url = "https://testnetapi.nobitex.ir/v2/trades/BTCIRT"
+          r = requests.get(url, timeout=15)
+          r.raise_for_status()
+          data = r.json()
+          assert data.get("status") == "ok", data
+          assert data.get("trades"), data
+          print("Nobitex Testnet public API: OK")
+          print("Latest BTCIRT trade:", data["trades"][0])
+          PY
