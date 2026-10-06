@@ -3,6 +3,7 @@ import time
 import uuid
 import requests
 from statistics import mean
+from datetime import datetime, timezone
 
 API_ENV = os.getenv("NOBITEX_API_ENV", "testnet").lower()
 
@@ -30,11 +31,14 @@ ORDER_POLL_SECONDS = 2
 ORDER_POLL_ATTEMPTS = 15
 MAX_RUNTIME_SECONDS = int(os.getenv("NOBITEX_MAX_RUNTIME_SECONDS", "0"))
 
-# Safe by default. Testnet is the default environment and TEST_MODE stays enabled.
-# Live trading requires BOTH NOBITEX_API_ENV=mainnet and NOBITEX_TEST_MODE=false.
 TEST_MODE = os.getenv("NOBITEX_TEST_MODE", "true").lower() == "true"
 API_TOKEN = os.getenv("NOBITEX_API_TOKEN")
 STATE_FILE = "bot_state.json"
+
+
+def log(message):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"[{now}] {message}", flush=True)
 
 
 def get_latest_price():
@@ -50,7 +54,9 @@ def get_latest_price():
     if not trades:
         raise RuntimeError("قیمت دریافت نشد.")
 
-    return float(trades[0]["price"])
+    price = float(trades[0]["price"])
+    log(f"✅ دریافت قیمت از {API_ENV}: BTCIRT = {price:,.0f}")
+    return price
 
 
 def load_state():
@@ -88,9 +94,9 @@ def get_order_status(order_id):
 
 def place_order(order_type, amount, price):
     if TEST_MODE:
-        print(
-            f"[TEST MODE] سفارش آزمایشی: "
-            f"{order_type.upper()} | مقدار={amount:.8f} | قیمت={price:,.0f}"
+        log(
+            f"🧪 [TEST MODE] سفارش فقط شبیه‌سازی شد: "
+            f"{order_type.upper()} | مقدار={amount:.8f} BTC | قیمت={price:,.0f} RLS"
         )
         return {
             "status": "test",
@@ -124,7 +130,7 @@ def place_order(order_type, amount, price):
     )
     response.raise_for_status()
     result = response.json()
-    print("پاسخ نوبیتکس:", result)
+    log(f"پاسخ نوبیتکس: {result}")
 
     if result.get("status") != "ok":
         raise RuntimeError(f"ثبت سفارش ناموفق بود: {result}")
@@ -136,7 +142,7 @@ def place_order(order_type, amount, price):
 
     for _ in range(ORDER_POLL_ATTEMPTS):
         status = get_order_status(order_id)
-        print("وضعیت سفارش:", status)
+        log(f"وضعیت سفارش: {status}")
 
         order_data = status.get("order", {})
         if order_data.get("status") == "Done":
@@ -169,21 +175,23 @@ def run_bot():
     state = load_state()
     started_at = time.monotonic()
 
-    print("================================")
-    print("   NOBITEX TRADING BOT")
-    print("================================")
-    print("محیط API:", API_ENV)
-    print("حالت فعلی:", "آزمایشی" if TEST_MODE else "واقعی")
+    log("================================")
+    log("   NOBITEX TRADING BOT")
+    log("================================")
+    log(f"محیط API: {API_ENV}")
+    log(f"حالت فعلی: {'آزمایشی' if TEST_MODE else 'واقعی'}")
     if TEST_MODE:
-        print("هیچ خرید یا فروش واقعی انجام نمی‌شود.")
+        log("🛡️ هیچ خرید یا فروش واقعی انجام نمی‌شود؛ سفارش‌ها فقط شبیه‌سازی هستند.")
     else:
-        print("هشدار: حالت واقعی فعال است!")
-    print("--------------------------------")
+        log("⚠️ هشدار: حالت واقعی فعال است!")
+    log(f"نماد: {SYMBOL} | MA کوتاه={SHORT_WINDOW} | MA بلند={LONG_WINDOW}")
+    log(f"حد ضرر={STOP_LOSS * 100:.1f}% | حد سود={TAKE_PROFIT * 100:.1f}%")
+    log("--------------------------------")
 
     while True:
         if MAX_RUNTIME_SECONDS > 0 and time.monotonic() - started_at >= MAX_RUNTIME_SECONDS:
             save_state(state)
-            print("⏹️ زمان این نوبت تمام شد؛ وضعیت ذخیره شد.")
+            log("⏹️ زمان این نوبت تمام شد؛ وضعیت ذخیره شد.")
             break
         try:
             price = get_latest_price()
@@ -192,9 +200,10 @@ def run_bot():
             if len(prices) > LONG_WINDOW + 1:
                 prices.pop(0)
 
-            print(f"قیمت فعلی: {price:,.0f} | تعداد داده: {len(prices)}")
+            log(f"📊 داده قیمت #{len(prices)} | BTCIRT={price:,.0f}")
 
             if len(prices) < LONG_WINDOW + 1:
+                log(f"⏳ برای محاسبه سیگنال {LONG_WINDOW + 1 - len(prices)} داده دیگر لازم است.")
                 time.sleep(CHECK_SECONDS)
                 continue
 
@@ -204,12 +213,14 @@ def run_bot():
             long_ma = mean(prices[-LONG_WINDOW:])
 
             crossed_up = previous_short <= previous_long and short_ma > long_ma
-            print(f"MA کوتاه: {short_ma:,.0f} | MA بلند: {long_ma:,.0f}")
+            log(
+                f"📈 MA کوتاه={short_ma:,.0f} | MA بلند={long_ma:,.0f} | "
+                f"سیگنال صعودی={'بله' if crossed_up else 'خیر'}"
+            )
 
             if not state["in_position"] and crossed_up:
                 amount = TRADE_AMOUNT_RLS / price
-                print("🟢 سیگنال خرید")
-
+                log("🟢 سیگنال خرید صادر شد.")
                 result = place_order("buy", amount, price)
                 if result.get("filled"):
                     state = {
@@ -218,7 +229,7 @@ def run_bot():
                         "amount": result["amount"],
                     }
                     save_state(state)
-                    print(f"ورود در قیمت: {state['entry_price']:,.0f}")
+                    log(f"🧪 ورود آزمایشی در قیمت {state['entry_price']:,.0f}")
 
             elif state["in_position"]:
                 entry_price = state["entry_price"]
@@ -226,33 +237,35 @@ def run_bot():
                 stop_price = entry_price * (1 - STOP_LOSS)
                 target_price = entry_price * (1 + TAKE_PROFIT)
 
-                print(
-                    f"حد ضرر: {stop_price:,.0f} | "
-                    f"حد سود: {target_price:,.0f}"
+                log(
+                    f"🎯 موقعیت باز | ورود={entry_price:,.0f} | "
+                    f"حد ضرر={stop_price:,.0f} | حد سود={target_price:,.0f}"
                 )
 
                 if price <= stop_price:
-                    print("🔴 حد ضرر فعال شد")
+                    log("🔴 حد ضرر فعال شد.")
                     result = place_order("sell", amount, price)
                     if result.get("filled"):
                         state = {"in_position": False, "entry_price": 0, "amount": 0}
                         save_state(state)
+                        log("🧪 خروج آزمایشی با حد ضرر انجام شد.")
 
                 elif price >= target_price:
-                    print("🟢 حد سود فعال شد")
+                    log("🟢 حد سود فعال شد.")
                     result = place_order("sell", amount, price)
                     if result.get("filled"):
                         state = {"in_position": False, "entry_price": 0, "amount": 0}
                         save_state(state)
+                        log("🧪 خروج آزمایشی با حد سود انجام شد.")
 
             time.sleep(CHECK_SECONDS)
 
         except KeyboardInterrupt:
             save_state(state)
-            print("ربات متوقف شد.")
+            log("⏹️ ربات متوقف شد.")
             break
         except Exception as e:
-            print("⚠️ خطا:", e)
+            log(f"⚠️ خطا: {e}")
             time.sleep(CHECK_SECONDS)
 
 
