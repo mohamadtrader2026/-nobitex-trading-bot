@@ -1,6 +1,11 @@
 import os
 import tempfile
-import nobitex_bot as bot
+import importlib.util
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("nobitex_bot_test_module", Path("nobitex_bot.py"))
+bot = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bot)
 
 assert bot.TEST_MODE is True, "TEST_MODE must remain enabled"
 assert bot.CANDIDATE_SYMBOLS, "candidate market list is empty"
