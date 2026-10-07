@@ -35,6 +35,16 @@ TEST_MODE = os.getenv("NOBITEX_TEST_MODE", "true").lower() == "true"
 API_TOKEN = os.getenv("NOBITEX_API_TOKEN")
 STATE_FILE = "bot_state.json"
 
+# GitHub-hosted runners may be unable to resolve the Nobitex Testnet hostname.
+# In TEST_MODE only, use public mainnet market data as a safe fallback so the
+# strategy can still be exercised. No real order is sent in this mode.
+ALLOW_PUBLIC_MARKET_FALLBACK = (
+    API_ENV == "testnet"
+    and TEST_MODE
+    and os.getenv("NOBITEX_PUBLIC_MARKET_FALLBACK", "true").lower() == "true"
+)
+PUBLIC_MARKET_FALLBACK_BASE = "https://apiv2.nobitex.ir"
+
 
 def log(message):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -42,21 +52,45 @@ def log(message):
 
 
 def get_latest_price():
-    url = f"{PUBLIC_API_BASE}/v2/trades/{SYMBOL}"
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
-    data = response.json()
+    testnet_url = f"{PUBLIC_API_BASE}/v2/trades/{SYMBOL}"
 
-    if data.get("status") != "ok":
-        raise RuntimeError(f"خطا در دریافت قیمت: {data}")
+    try:
+        response = requests.get(testnet_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
 
-    trades = data.get("trades", [])
-    if not trades:
-        raise RuntimeError("قیمت دریافت نشد.")
+        if data.get("status") != "ok":
+            raise RuntimeError(f"خطا در دریافت قیمت: {data}")
 
-    price = float(trades[0]["price"])
-    log(f"✅ دریافت قیمت از {API_ENV}: BTCIRT = {price:,.0f}")
-    return price
+        trades = data.get("trades", [])
+        if not trades:
+            raise RuntimeError("قیمت دریافت نشد.")
+
+        price = float(trades[0]["price"])
+        log(f"✅ دریافت قیمت از {API_ENV}: BTCIRT = {price:,.0f}")
+        return price
+
+    except Exception as testnet_error:
+        if not ALLOW_PUBLIC_MARKET_FALLBACK:
+            raise
+
+        fallback_url = f"{PUBLIC_MARKET_FALLBACK_BASE}/v3/orderbook/{SYMBOL}"
+        response = requests.get(fallback_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("status") != "ok" or not data.get("lastTradePrice"):
+            raise RuntimeError(
+                f"Testnet در دسترس نیست و fallback بازار عمومی هم نامعتبر است: {data}"
+            )
+
+        price = float(data["lastTradePrice"])
+        log(
+            "⚠️ Testnet در دسترس نیست؛ برای TEST_MODE از داده عمومی بازار اصلی "
+            f"فقط برای تست استراتژی استفاده شد. خطای Testnet: {testnet_error}"
+        )
+        log(f"📡 قیمت fallback عمومی BTCIRT = {price:,.0f}")
+        return price
 
 
 def load_state():
@@ -182,6 +216,8 @@ def run_bot():
     log(f"حالت فعلی: {'آزمایشی' if TEST_MODE else 'واقعی'}")
     if TEST_MODE:
         log("🛡️ هیچ خرید یا فروش واقعی انجام نمی‌شود؛ سفارش‌ها فقط شبیه‌سازی هستند.")
+        if ALLOW_PUBLIC_MARKET_FALLBACK:
+            log("🔁 fallback عمومی بازار در صورت قطعی Testnet فعال است؛ فقط برای TEST_MODE.")
     else:
         log("⚠️ هشدار: حالت واقعی فعال است!")
     log(f"نماد: {SYMBOL} | MA کوتاه={SHORT_WINDOW} | MA بلند={LONG_WINDOW}")
@@ -193,6 +229,7 @@ def run_bot():
             save_state(state)
             log("⏹️ زمان این نوبت تمام شد؛ وضعیت ذخیره شد.")
             break
+
         try:
             price = get_latest_price()
             prices.append(price)
