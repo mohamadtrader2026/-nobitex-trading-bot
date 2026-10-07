@@ -22,6 +22,7 @@ jobs:
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
+      NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
       NOBITEX_MAX_RUNTIME_SECONDS: "21600"
     steps:
       - name: Checkout
@@ -33,7 +34,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Initialize state
-        run: printf '{"in_position":false,"entry_price":0,"amount":0}\n' > bot_state.json
+        run: printf '{"in_position":false,"entry_price":0,"amount":0}
+' > bot_state.json
       - name: Run safe bot
         run: python nobitex_bot.py
       - name: Save state for cycle 2
@@ -54,6 +56,7 @@ jobs:
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
+      NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
       NOBITEX_MAX_RUNTIME_SECONDS: "21600"
     steps:
       - name: Checkout
@@ -64,7 +67,8 @@ jobs:
         with:
           name: bot-state-cycle-1
       - name: Initialize state if needed
-        run: test -f bot_state.json || printf '{"in_position":false,"entry_price":0,"amount":0}\n' > bot_state.json
+        run: test -f bot_state.json || printf '{"in_position":false,"entry_price":0,"amount":0}
+' > bot_state.json
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -91,6 +95,7 @@ jobs:
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
+      NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
       NOBITEX_MAX_RUNTIME_SECONDS: "21600"
     steps:
       - name: Checkout
@@ -101,7 +106,8 @@ jobs:
         with:
           name: bot-state-cycle-2
       - name: Initialize state if needed
-        run: test -f bot_state.json || printf '{"in_position":false,"entry_price":0,"amount":0}\n' > bot_state.json
+        run: test -f bot_state.json || printf '{"in_position":false,"entry_price":0,"amount":0}
+' > bot_state.json
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -128,6 +134,7 @@ jobs:
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
+      NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
       NOBITEX_MAX_RUNTIME_SECONDS: "21600"
     steps:
       - name: Checkout
@@ -138,7 +145,8 @@ jobs:
         with:
           name: bot-state-cycle-3
       - name: Initialize state if needed
-        run: test -f bot_state.json || printf '{"in_position":false,"entry_price":0,"amount":0}\n' > bot_state.json
+        run: test -f bot_state.py || printf '{"in_position":false,"entry_price":0,"amount":0}
+' > bot_state.json
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
