@@ -145,7 +145,7 @@ jobs:
         with:
           name: bot-state-cycle-3
       - name: Initialize state if needed
-        run: test -f bot_state.py || printf '{"in_position":false,"entry_price":0,"amount":0}
+        run: test -f bot_state.json || printf '{"in_position":false,"entry_price":0,"amount":0}
 ' > bot_state.json
       - name: Set up Python
         uses: actions/setup-python@v5
