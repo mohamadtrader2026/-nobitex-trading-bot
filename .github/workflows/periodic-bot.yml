@@ -1,15 +1,13 @@
 name: Nobitex Continuous Test Cycle
 
 on:
-  push:
-    branches: ["main"]
   schedule:
     - cron: "17 0 * * *"
   workflow_dispatch:
 
 concurrency:
   group: nobitex-continuous-test
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -152,9 +150,9 @@ jobs:
       - name: Initialize state if needed
         run: test -f bot_state.json || echo '{"in_position":false,"entry_price":0,"amount":0}' > bot_state.json
       - name: Set up Python
-        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+        uses: actions/setup-python@v5
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run safe bot
