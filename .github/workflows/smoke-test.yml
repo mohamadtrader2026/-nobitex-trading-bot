@@ -1,0 +1,37 @@
+name: Nobitex Safe Smoke Test
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Safe bot smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NOBITEX_API_ENV: testnet
+      NOBITEX_TEST_MODE: "true"
+      NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
+      NOBITEX_MAX_RUNTIME_SECONDS: "120"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run safe unit test
+        run: python test_bot_safe.py
+
+      - name: Run bot smoke test
+        run: python nobitex_bot.py
