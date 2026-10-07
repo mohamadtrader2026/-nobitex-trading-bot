@@ -16,6 +16,7 @@ elif API_ENV == "mainnet":
 else:
     raise RuntimeError("NOBITEX_API_ENV باید testnet یا mainnet باشد.")
 
+# Smart selector v2: scan liquid IRR markets on every cycle.
 # The selector scans liquid IRR markets. The list is only a preference list;
 # markets missing from Nobitex's public orderbook are skipped automatically.
 CANDIDATE_SYMBOLS = [
