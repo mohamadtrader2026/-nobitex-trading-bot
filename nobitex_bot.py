@@ -25,13 +25,14 @@ STOP_LOSS = 0.02
 TAKE_PROFIT = 0.04
 
 # سرعت بالاتر، بدون بی‌دقتی در ارسال سفارش
-CHECK_SECONDS = float(os.getenv("NOBITEX_CHECK_SECONDS", "2"))
-ORDER_POLL_SECONDS = float(os.getenv("NOBITEX_ORDER_POLL_SECONDS", "0.5"))
+CHECK_SECONDS = float(os.getenv("NOBITEX_CHECK_SECONDS", "1"))
+ORDER_POLL_SECONDS = float(os.getenv("NOBITEX_ORDER_POLL_SECONDS", "0.25"))
 ORDER_POLL_ATTEMPTS = 20
-REQUEST_TIMEOUT = 8
+REQUEST_TIMEOUT = 5
 MAX_RUNTIME_SECONDS = int(os.getenv("NOBITEX_MAX_RUNTIME_SECONDS", "0"))
 MIN_SCORE = float(os.getenv("NOBITEX_MIN_SCORE", "0.15"))
 MAX_SPREAD_PCT = float(os.getenv("NOBITEX_MAX_SPREAD_PCT", "0.80"))
+REENTRY_COOLDOWN_SECONDS = float(os.getenv("NOBITEX_REENTRY_COOLDOWN_SECONDS", "8"))
 
 TEST_MODE = os.getenv("NOBITEX_TEST_MODE", "true").lower() == "true"
 API_TOKEN = os.getenv("NOBITEX_API_TOKEN")
@@ -58,9 +59,10 @@ def load_state():
             "entry_price": float(s.get("entry_price", 0)),
             "amount": float(s.get("amount", 0)),
             "history": s.get("history", {}),
+            "last_exit_at": float(s.get("last_exit_at", 0)),
         }
     except (FileNotFoundError, ValueError, TypeError):
-        return {"in_position": False, "symbol": DEFAULT_SYMBOL, "entry_price": 0, "amount": 0, "history": {}}
+        return {"in_position": False, "symbol": DEFAULT_SYMBOL, "entry_price": 0, "amount": 0, "history": {}, "last_exit_at": 0}
 
 
 def save_state(state):
@@ -199,7 +201,7 @@ def run_bot():
     log("================================")
     log("   NOBITEX SMART FAST BOT")
     log("================================")
-    log(f"محیط={API_ENV} | حالت={'آزمایشی' if TEST_MODE else 'واقعی'} | فاصله بررسی={CHECK_SECONDS}s")
+    log(f"محیط={API_ENV} | حالت={'آزمایشی' if TEST_MODE else 'واقعی'} | فاصله بررسی={CHECK_SECONDS}s | poll سفارش={ORDER_POLL_SECONDS}s")
     log("🛡️ TEST_MODE فعال است؛ سفارش واقعی ارسال نمی‌شود.")
 
     while True:
@@ -229,13 +231,16 @@ def run_bot():
                     log(f"🔴 SL سریع فعال شد: {symbol}")
                     result = place_order("sell", amount, snap["bid"], symbol)
                     if result.get("filled"):
-                        state.update({"in_position": False, "entry_price": 0, "amount": 0})
+                        state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.monotonic()})
                 elif price >= tp:
                     log(f"🟢 TP فعال شد: {symbol}")
                     result = place_order("sell", amount, snap["bid"], symbol)
                     if result.get("filled"):
                         state.update({"in_position": False, "entry_price": 0, "amount": 0})
             else:
+                if time.monotonic() - state.get("last_exit_at", 0) < REENTRY_COOLDOWN_SECONDS:
+                    time.sleep(CHECK_SECONDS)
+                    continue
                 best, scored = select_best_market(snapshots, state["history"])
                 if best:
                     score, symbol, snap, trend, momentum, liquidity = best
