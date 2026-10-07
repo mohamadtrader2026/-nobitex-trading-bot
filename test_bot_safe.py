@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory() as d:
     try:
         entry = 100_000_000.0
         amount = bot.TRADE_AMOUNT_RLS / entry
-        buy = bot.place_order("buy", amount, entry, "BTCIRT")
+        buy = bot.place_order("buy", amount, entry)
         assert buy.get("filled") is True
         state = {
             "in_position": True, "symbol": "BTCIRT", "src_currency": "btc",
@@ -26,8 +26,8 @@ with tempfile.TemporaryDirectory() as d:
 
         assert abs(entry * (1 - bot.STOP_LOSS) - 98_000_000.0) < 0.01
         assert abs(entry * (1 + bot.TAKE_PROFIT) - 104_000_000.0) < 0.01
-        assert bot.place_order("sell", amount, 98_000_000.0, "BTCIRT").get("filled") is True
-        assert bot.place_order("sell", amount, 104_000_000.0, "BTCIRT").get("filled") is True
+        assert bot.place_order("sell", amount, 98_000_000.0).get("filled") is True
+        assert bot.place_order("sell", amount, 104_000_000.0).get("filled") is True
 
         history = {
             "BTCIRT": [100 + i for i in range(21)],
