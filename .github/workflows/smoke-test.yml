@@ -10,14 +10,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   bot:
-    name: Safe bot active cycle (6h)
+    name: Safe bot active cycle (4h)
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
+    timeout-minutes: 240
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
       NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
+      NOBITEX_MAX_RUNTIME_SECONDS: "14400"
       NOBITEX_CHECK_SECONDS: "1"
     steps:
       - name: Checkout
