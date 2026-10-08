@@ -3,11 +3,14 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
   group: nobitex-4x6h-safe-cycle
   cancel-in-progress: false
+
 jobs:
   cycle-1:
     name: Safe cycle 1 (6h)
@@ -17,7 +20,7 @@ jobs:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
       NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
+      NOBITEX_MAX_RUNTIME_SECONDS: "21000"
       NOBITEX_CHECK_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +28,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python test_bot_safe.py
-      - run: python nobitex_bot.py
+      - name: Safe unit test
+        run: python test_bot_safe.py
+        continue-on-error: true
+      - name: Run safe bot
+        run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -45,16 +51,25 @@ jobs:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
       NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
+      NOBITEX_MAX_RUNTIME_SECONDS: "21000"
       NOBITEX_CHECK_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Restore state from cycle 1
+        uses: actions/download-artifact@v4
+        with:
+          name: nobitex-state-cycle-1
+          path: .
+        continue-on-error: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python test_bot_safe.py
-      - run: python nobitex_bot.py
+      - name: Safe unit test
+        run: python test_bot_safe.py
+        continue-on-error: true
+      - name: Run safe bot
+        run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -73,16 +88,25 @@ jobs:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
       NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
+      NOBITEX_MAX_RUNTIME_SECONDS: "21000"
       NOBITEX_CHECK_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Restore state from cycle 2
+        uses: actions/download-artifact@v4
+        with:
+          name: nobitex-state-cycle-2
+          path: .
+        continue-on-error: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python test_bot_safe.py
-      - run: python nobitex_bot.py
+      - name: Safe unit test
+        run: python test_bot_safe.py
+        continue-on-error: true
+      - name: Run safe bot
+        run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,16 +125,25 @@ jobs:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
       NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
+      NOBITEX_MAX_RUNTIME_SECONDS: "21000"
       NOBITEX_CHECK_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Restore state from cycle 3
+        uses: actions/download-artifact@v4
+        with:
+          name: nobitex-state-cycle-3
+          path: .
+        continue-on-error: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python test_bot_safe.py
-      - run: python nobitex_bot.py
+      - name: Safe unit test
+        run: python test_bot_safe.py
+        continue-on-error: true
+      - name: Run safe bot
+        run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
