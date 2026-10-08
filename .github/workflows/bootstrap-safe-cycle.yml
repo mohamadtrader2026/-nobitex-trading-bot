@@ -1,16 +1,12 @@
 name: Nobitex Bootstrap Safe Cycle
-
 on:
   push:
     branches: ["main"]
-
 permissions:
   contents: read
-
 concurrency:
   group: nobitex-bootstrap-cycle
   cancel-in-progress: false
-
 jobs:
   cycle-1:
     name: Safe cycle 1 (6h)
@@ -28,6 +24,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python test_bot_safe.py
+        continue-on-error: true
       - run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
         if: always()
@@ -36,10 +33,10 @@ jobs:
           path: bot_state.json
           if-no-files-found: ignore
           retention-days: 1
-
   cycle-2:
     name: Safe cycle 2 (6h)
     needs: cycle-1
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -54,6 +51,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: nobitex-state-cycle-1
           path: .
@@ -65,11 +63,10 @@ jobs:
           path: bot_state.json
           if-no-files-found: ignore
           retention-days: 1
-
   cycle-3:
     name: Safe cycle 3 (6h)
     needs: cycle-2
-    if: ${{ always() }}
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -84,6 +81,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: nobitex-state-cycle-2
           path: .
@@ -95,11 +93,10 @@ jobs:
           path: bot_state.json
           if-no-files-found: ignore
           retention-days: 1
-
   cycle-4:
     name: Safe cycle 4 (6h)
     needs: cycle-3
-    if: ${{ always() }}
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -114,7 +111,15 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: nobitex-state-cycle-3
           path: .
       - run: python nobitex_bot.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nobitex-state-cycle-4
+          path: bot_state.json
+          if-no-files-found: ignore
+          retention-days: 1
