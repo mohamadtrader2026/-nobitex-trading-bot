@@ -1,5 +1,7 @@
 name: Nobitex Bootstrap Safe 4x6h Cycle
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
 permissions:
   contents: read
