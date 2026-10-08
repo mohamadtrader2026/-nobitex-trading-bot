@@ -1,39 +1,42 @@
 name: Nobitex Safe Smoke Test
-
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: nobitex-active-safe-bot
+  cancel-in-progress: false
 jobs:
-  smoke:
-    name: Safe bot smoke test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  bot:
+    name: Safe bot active cycle (6h)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
     env:
       NOBITEX_API_ENV: testnet
       NOBITEX_TEST_MODE: "true"
       NOBITEX_PUBLIC_MARKET_FALLBACK: "true"
-      NOBITEX_MAX_RUNTIME_SECONDS: "120"
+      NOBITEX_MAX_RUNTIME_SECONDS: "21600"
+      NOBITEX_CHECK_SECONDS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
       - name: Run safe unit test
         run: python test_bot_safe.py
-
-      - name: Run bot smoke test
+      - name: Run bot
         run: python nobitex_bot.py
+      - name: Save state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nobitex-active-safe-state
+          path: bot_state.json
+          if-no-files-found: ignore
+          retention-days: 1
