@@ -13,6 +13,9 @@ assert bot.TEST_MODE is True
 assert bot.CHECK_SECONDS <= 2.0
 assert bot.ORDER_POLL_SECONDS <= 0.5
 assert bot.CANDIDATE_SYMBOLS
+assert abs(bot.MAX_SPREAD_PCT - 0.25) < 1e-9
+assert abs(bot.MAX_VOLATILITY_PCT - 0.25) < 1e-9
+assert abs(bot.MIN_SCORE - 0.18) < 1e-9
 assert abs(bot.TAKE_PROFIT - 0.05) < 1e-9
 assert abs(bot.STOP_LOSS - 0.01) < 1e-9
 assert abs(bot.DAILY_LOSS_LIMIT_PCT - 0.03) < 1e-9
@@ -70,10 +73,26 @@ with tempfile.TemporaryDirectory() as d:
         history = {"BTCIRT": [100+i for i in range(21)], "ETHIRT": [100]*21}
         snapshots = {"BTCIRT": {"price": 122, "bid": 121, "ask": 123, "spread_pct": .10, "depth": 20_000_000}, "ETHIRT": {"price": 100, "bid": 99, "ask": 101, "spread_pct": .10, "depth": 20_000_000}}
         best, scored = bot.select_best_market(snapshots, history)
-        assert best is not None and best[1] == "BTCIRT"
+        assert best is not None and best[1] == "BTCIRT" and best[8] is True
+
+        # A tighter spread market should beat a high-spread market.
+        good_history = {"BTCIRT": [100 + i for i in range(21)], "ETHIRT": [100 + i for i in range(21)]}
+        good_snapshots = {
+            "BTCIRT": {"price": 122, "bid": 121, "ask": 123, "spread_pct": .90, "depth": 20_000_000},
+            "ETHIRT": {"price": 122, "bid": 121.8, "ask": 122.2, "spread_pct": .10, "depth": 20_000_000},
+        }
+        good_best, _ = bot.select_best_market(good_snapshots, good_history)
+        assert good_best is not None and good_best[1] == "ETHIRT"
+
+        # Flat markets must not trigger an entry.
+        flat_history = {"BTCIRT": [100] * 21}
+        flat_snapshots = {"BTCIRT": {"price": 100, "bid": 99.9, "ask": 100.1, "spread_pct": .20, "depth": 20_000_000}}
+        no_trade, _ = bot.select_best_market(flat_snapshots, flat_history)
+        assert no_trade is None
         print("FINAL SAFE TEST: PASS")
         print("FAST CHECK/POLL: PASS")
         print("SMART SELECTOR: PASS")
+        print("SPREAD / MOMENTUM / CONSISTENCY / VOLATILITY FILTERS: PASS")
         print("TAKE PROFIT 5% / STOP LOSS 1%: PASS")
         print("DAILY LOSS CAP 3% OF CONFIGURED BASE: PASS")
         print("TEST_MODE: PASS")
