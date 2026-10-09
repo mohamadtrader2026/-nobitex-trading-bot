@@ -328,7 +328,7 @@ def run_bot():
                     continue
                 best, scored = select_best_market(snapshots, state["history"])
                 if best:
-                    score, symbol, snap, trend, momentum, liquidity = best
+                    score, symbol, snap, trend, momentum, liquidity, up_move_ratio, volatility_pct, _eligible = best
                     amount = TRADE_AMOUNT_RLS / snap["ask"]
                     log(f"🏆 {symbol} | score={score:.4f} | trend={trend*100:.2f}% | momentum={momentum*100:.2f}% | spread={snap['spread_pct']:.2f}% | حرکت صعودی={best[6]*100:.0f}% | نوسان={best[7]:.3f}%")
                     result = place_order("buy", amount, snap["ask"], symbol)
