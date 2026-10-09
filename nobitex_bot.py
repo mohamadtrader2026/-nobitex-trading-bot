@@ -220,7 +220,7 @@ def run_bot():
     log(f"محیط={API_ENV} | حالت={'آزمایشی' if TEST_MODE else 'واقعی'} | فاصله بررسی={CHECK_SECONDS}s | poll سفارش={ORDER_POLL_SECONDS}s")
     if state.get("halted"):
         log(f"🛑 ربات به‌دلیل سفارش نامشخص قبلی متوقف می‌ماند؛ شناسه برای بررسی دستی: {state.get('pending_order_id') or 'نامشخص'}")
-        return
+        raise SystemExit(2)
     if TEST_MODE:
         log("🛡️ TEST_MODE فعال است؛ سفارش واقعی ارسال نمی‌شود.")
 
