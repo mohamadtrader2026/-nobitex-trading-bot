@@ -10,7 +10,7 @@ import csv
 import json
 import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import nobitex_bot as bot
@@ -41,7 +41,12 @@ def load_snapshots(path):
                 }
             except (TypeError, ValueError, ZeroDivisionError) as exc:
                 raise ValueError(f"Invalid CSV row {line}: {exc}") from exc
-    return [(ts, grouped[ts]) for ts in sorted(grouped)]
+    def utc_key(ts):
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return [(ts, grouped[ts]) for ts in sorted(grouped, key=utc_key)]
 
 
 def run_backtest(rows, fee_pct=0.1, trade_amount=bot.TRADE_AMOUNT_RLS):
@@ -61,14 +66,17 @@ def run_backtest(rows, fee_pct=0.1, trade_amount=bot.TRADE_AMOUNT_RLS):
     fee_rate = fee_pct / 100.0
 
     for timestamp, snapshots in rows:
-        day = timestamp[:10]
+        parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if parsed_time.tzinfo is None:
+            parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+        day = parsed_time.astimezone(timezone.utc).date().isoformat()
         if day != active_day:
             active_day, daily_loss = day, 0.0
 
         if position:
             snap = snapshots.get(position["symbol"])
             if snap:
-                price = snap["price"]
+                price = snap["bid"]
                 entry = position["entry_price"]
                 reason = "stop_loss" if price <= entry * (1 - bot.STOP_LOSS) else (
                     "take_profit" if price >= entry * (1 + bot.TAKE_PROFIT) else None
@@ -91,7 +99,7 @@ def run_backtest(rows, fee_pct=0.1, trade_amount=bot.TRADE_AMOUNT_RLS):
                     position = None
             continue
 
-        if daily_loss >= trade_amount * bot.DAILY_LOSS_LIMIT_PCT:
+        if daily_loss >= bot.daily_loss_limit_rials():
             # Same conservative policy: no new entries after the configured daily loss cap.
             continue
 
@@ -109,6 +117,16 @@ def run_backtest(rows, fee_pct=0.1, trade_amount=bot.TRADE_AMOUNT_RLS):
     wins = sum(1 for t in trades if t["net_pnl_rials"] > 0)
     losses = sum(1 for t in trades if t["net_pnl_rials"] <= 0)
     net_total = sum(t["net_pnl_rials"] for t in trades)
+    gross_wins = sum(t["net_pnl_rials"] for t in trades if t["net_pnl_rials"] > 0)
+    gross_losses = -sum(t["net_pnl_rials"] for t in trades if t["net_pnl_rials"] < 0)
+    consecutive_losses = 0
+    max_consecutive_losses = 0
+    for trade in trades:
+        if trade["net_pnl_rials"] <= 0:
+            consecutive_losses += 1
+            max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
+        else:
+            consecutive_losses = 0
     return {
         "bars": len(rows),
         "closed_trades": len(trades),
@@ -118,6 +136,11 @@ def run_backtest(rows, fee_pct=0.1, trade_amount=bot.TRADE_AMOUNT_RLS):
         "gross_pnl_rials": round(sum(t["gross_pnl_rials"] for t in trades), 2),
         "fees_rials": round(sum(t["fees_rials"] for t in trades), 2),
         "net_pnl_rials": round(net_total, 2),
+        "profit_factor": round(gross_wins / gross_losses, 3) if gross_losses else (None if not gross_wins else "infinite"),
+        "expectancy_per_trade_rials": round(net_total / len(trades), 2) if trades else 0.0,
+        "average_win_rials": round(gross_wins / wins, 2) if wins else 0.0,
+        "average_loss_rials": round(-gross_losses / losses, 2) if losses else 0.0,
+        "max_consecutive_losses": max_consecutive_losses,
         "max_realized_drawdown_rials": round(max_drawdown, 2),
         "open_position_at_end": position is not None,
         "open_position_symbol": position["symbol"] if position else None,
@@ -137,7 +160,7 @@ def main():
     report = run_backtest(load_snapshots(args.csv_path), args.fee_pct, args.trade_amount)
     encoded = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
-        Path(args.output).write_text(encoded + "\\n", encoding="utf-8")
+        Path(args.output).write_text(encoded + "\n", encoding="utf-8")
     print(encoded)
 
 

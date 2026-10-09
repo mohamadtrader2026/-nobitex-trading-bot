@@ -14,6 +14,8 @@ assert bot.CHECK_SECONDS <= 2.0
 assert bot.ORDER_POLL_SECONDS <= 0.5
 assert bot.CANDIDATE_SYMBOLS
 assert abs(bot.MAX_SPREAD_PCT - 0.25) < 1e-9
+assert abs(bot.MIN_BOOK_IMBALANCE - 0.40) < 1e-9
+assert abs(bot.FEE_PCT - 0.1) < 1e-9
 assert abs(bot.MAX_VOLATILITY_PCT - 0.25) < 1e-9
 assert abs(bot.MIN_SCORE - 0.18) < 1e-9
 assert abs(bot.TAKE_PROFIT - 0.05) < 1e-9
@@ -67,7 +69,7 @@ with tempfile.TemporaryDirectory() as d:
         assert bot.place_order("sell", amount, 99_000_000, "BTCIRT")["filled"] is True
         loss_state = {"in_position": True, "entry_price": 100_000_000, "amount": 0.01, "last_exit_at": 0, "daily_loss_date": bot.datetime.now(bot.timezone.utc).date().isoformat(), "daily_loss_rials": 0}
         bot.finalize_exit(loss_state, 97_000_000)
-        assert abs(loss_state["daily_loss_rials"] - 30_000) < 1
+        assert abs(loss_state["daily_loss_rials"] - 31_970) < 1
         assert loss_state["in_position"] is False
         assert loss_state["daily_loss_rials"] >= bot.daily_loss_limit_rials()
         history = {"BTCIRT": [100+i for i in range(21)], "ETHIRT": [100]*21}
@@ -83,6 +85,12 @@ with tempfile.TemporaryDirectory() as d:
         }
         good_best, _ = bot.select_best_market(good_snapshots, good_history)
         assert good_best is not None and good_best[1] == "ETHIRT"
+
+        # Ask-heavy order books are rejected even when price history trends upward.
+        ask_heavy_history = {"BTCIRT": [100 + i for i in range(21)]}
+        ask_heavy = {"BTCIRT": {"price": 122, "bid": 121.8, "ask": 122.2, "spread_pct": .10, "depth": 20_000_000, "book_imbalance": .20}}
+        no_ask_heavy, _ = bot.select_best_market(ask_heavy, ask_heavy_history)
+        assert no_ask_heavy is None
 
         # Flat markets must not trigger an entry.
         flat_history = {"BTCIRT": [100] * 21}
