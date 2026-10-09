@@ -21,8 +21,12 @@ SHORT_WINDOW = 5
 LONG_WINDOW = 20
 HISTORY_SIZE = LONG_WINDOW + 1
 TRADE_AMOUNT_RLS = 1_000_000
-STOP_LOSS = 0.02
-TAKE_PROFIT = 0.04
+STOP_LOSS = float(os.getenv("NOBITEX_STOP_LOSS_PCT", "0.01"))
+TAKE_PROFIT = float(os.getenv("NOBITEX_TAKE_PROFIT_PCT", "0.05"))
+DAILY_LOSS_LIMIT_PCT = float(os.getenv("NOBITEX_DAILY_LOSS_LIMIT_PCT", "0.03"))
+DAILY_LOSS_BASE_RLS = float(os.getenv("NOBITEX_DAILY_LOSS_BASE_RLS", str(TRADE_AMOUNT_RLS)))
+if not (0 < STOP_LOSS < 1 and 0 < TAKE_PROFIT < 1 and 0 < DAILY_LOSS_LIMIT_PCT < 1 and DAILY_LOSS_BASE_RLS > 0):
+    raise ValueError("تنظیمات حد سود/ضرر روزانه نامعتبر است.")
 
 # سرعت بالاتر، بدون بی‌دقتی در ارسال سفارش
 CHECK_SECONDS = float(os.getenv("NOBITEX_CHECK_SECONDS", "1"))
@@ -64,14 +68,42 @@ def load_state():
             "pending_order_id": str(s.get("pending_order_id", "")),
             "pending_order_type": str(s.get("pending_order_type", "")),
             "pending_symbol": str(s.get("pending_symbol", "")),
+            "daily_loss_date": str(s.get("daily_loss_date", datetime.now(timezone.utc).date().isoformat())),
+            "daily_loss_rials": float(s.get("daily_loss_rials", 0)),
         }
     except (FileNotFoundError, ValueError, TypeError):
-        return {"in_position": False, "symbol": DEFAULT_SYMBOL, "entry_price": 0, "amount": 0, "history": {}, "last_exit_at": 0, "halted": False, "pending_order_id": "", "pending_order_type": "", "pending_symbol": ""}
+        return {"in_position": False, "symbol": DEFAULT_SYMBOL, "entry_price": 0, "amount": 0, "history": {}, "last_exit_at": 0, "halted": False, "pending_order_id": "", "pending_order_type": "", "pending_symbol": "", "daily_loss_date": datetime.now(timezone.utc).date().isoformat(), "daily_loss_rials": 0.0}
 
 
 def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+
+def reset_daily_loss_if_new_day(state):
+    today = datetime.now(timezone.utc).date().isoformat()
+    if state.get("daily_loss_date") != today:
+        state["daily_loss_date"] = today
+        state["daily_loss_rials"] = 0.0
+        log("📅 روز UTC جدید؛ شمارنده زیان روزانه از صفر شروع شد.")
+    state["daily_loss_rials"] = max(0.0, float(state.get("daily_loss_rials", 0.0)))
+
+
+def daily_loss_limit_rials():
+    return DAILY_LOSS_BASE_RLS * DAILY_LOSS_LIMIT_PCT
+
+
+def finalize_exit(state, exit_price):
+    entry = float(state.get("entry_price", 0))
+    amount = float(state.get("amount", 0))
+    pnl_rials = (float(exit_price) - entry) * amount
+    if pnl_rials < 0:
+        state["daily_loss_rials"] = float(state.get("daily_loss_rials", 0.0)) + abs(pnl_rials)
+    state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.time()})
+    log(f"📊 نتیجه معامله: {pnl_rials:,.0f} ریال | زیان تحقق‌یافته امروز: {state['daily_loss_rials']:,.0f}/{daily_loss_limit_rials():,.0f} ریال")
+    if state["daily_loss_rials"] >= daily_loss_limit_rials():
+        log("🛑 سقف زیان روزانه رسید؛ ورودهای جدید تا روز UTC بعدی متوقف می‌شوند.")
 
 
 def fetch_market_snapshot():
@@ -221,6 +253,8 @@ def run_bot():
     if state.get("halted"):
         log(f"🛑 ربات به‌دلیل سفارش نامشخص قبلی متوقف می‌ماند؛ شناسه برای بررسی دستی: {state.get('pending_order_id') or 'نامشخص'}")
         raise SystemExit(2)
+    reset_daily_loss_if_new_day(state)
+    log(f"🎯 حد سود={TAKE_PROFIT*100:.2f}% | 🛑 حد ضرر={STOP_LOSS*100:.2f}% | سقف زیان روزانه={DAILY_LOSS_LIMIT_PCT*100:.2f}% از پایه {DAILY_LOSS_BASE_RLS:,.0f} ریال ({daily_loss_limit_rials():,.0f} ریال)")
     if TEST_MODE:
         log("🛡️ TEST_MODE فعال است؛ سفارش واقعی ارسال نمی‌شود.")
 
@@ -230,6 +264,7 @@ def run_bot():
             log("⏹️ پایان چرخه؛ وضعیت ذخیره شد.")
             break
         try:
+            reset_daily_loss_if_new_day(state)
             snapshots = fetch_market_snapshot()
             if not snapshots:
                 time.sleep(CHECK_SECONDS)
@@ -251,14 +286,18 @@ def run_bot():
                     log(f"🔴 SL سریع فعال شد: {symbol}")
                     result = place_order("sell", amount, snap["bid"], symbol)
                     if result.get("filled"):
-                        state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.time()})
+                        finalize_exit(state, result.get("average_price", snap["bid"]))
                 elif price >= tp:
                     log(f"🟢 TP فعال شد: {symbol}")
                     result = place_order("sell", amount, snap["bid"], symbol)
                     if result.get("filled"):
-                        state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.time()})
+                        finalize_exit(state, result.get("average_price", snap["bid"]))
             else:
-                if time.monotonic() - state.get("last_exit_at", 0) < REENTRY_COOLDOWN_SECONDS:
+                if float(state.get("daily_loss_rials", 0.0)) >= daily_loss_limit_rials():
+                    log("🛑 سقف زیان روزانه فعال است؛ ورود جدید تا روز UTC بعدی مجاز نیست.")
+                    time.sleep(CHECK_SECONDS)
+                    continue
+                if time.time() - state.get("last_exit_at", 0) < REENTRY_COOLDOWN_SECONDS:
                     time.sleep(CHECK_SECONDS)
                     continue
                 best, scored = select_best_market(snapshots, state["history"])
