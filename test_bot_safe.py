@@ -13,6 +13,10 @@ assert bot.TEST_MODE is True
 assert bot.CHECK_SECONDS <= 2.0
 assert bot.ORDER_POLL_SECONDS <= 0.5
 assert bot.CANDIDATE_SYMBOLS
+assert abs(bot.TAKE_PROFIT - 0.05) < 1e-9
+assert abs(bot.STOP_LOSS - 0.01) < 1e-9
+assert abs(bot.DAILY_LOSS_LIMIT_PCT - 0.03) < 1e-9
+assert abs(bot.daily_loss_limit_rials() - 30_000) < 1e-9
 unknown_order = bot.OrderStatusUnknown("12345", "buy", "BTCIRT")
 assert unknown_order.order_id == "12345"
 assert unknown_order.order_type == "buy"
@@ -55,9 +59,14 @@ with tempfile.TemporaryDirectory() as d:
         loaded = bot.load_state()
         assert loaded["symbol"] == "BTCIRT"
         assert loaded["in_position"] is True
-        assert abs(entry * (1 - bot.STOP_LOSS) - 98_000_000) < 1
-        assert abs(entry * (1 + bot.TAKE_PROFIT) - 104_000_000) < 1
-        assert bot.place_order("sell", amount, 98_000_000, "BTCIRT")["filled"] is True
+        assert abs(entry * (1 - bot.STOP_LOSS) - 99_000_000) < 1
+        assert abs(entry * (1 + bot.TAKE_PROFIT) - 105_000_000) < 1
+        assert bot.place_order("sell", amount, 99_000_000, "BTCIRT")["filled"] is True
+        loss_state = {"in_position": True, "entry_price": 100_000_000, "amount": 0.01, "last_exit_at": 0, "daily_loss_date": bot.datetime.now(bot.timezone.utc).date().isoformat(), "daily_loss_rials": 0}
+        bot.finalize_exit(loss_state, 97_000_000)
+        assert abs(loss_state["daily_loss_rials"] - 30_000) < 1
+        assert loss_state["in_position"] is False
+        assert loss_state["daily_loss_rials"] >= bot.daily_loss_limit_rials()
         history = {"BTCIRT": [100+i for i in range(21)], "ETHIRT": [100]*21}
         snapshots = {"BTCIRT": {"price": 122, "bid": 121, "ask": 123, "spread_pct": .10, "depth": 20_000_000}, "ETHIRT": {"price": 100, "bid": 99, "ask": 101, "spread_pct": .10, "depth": 20_000_000}}
         best, scored = bot.select_best_market(snapshots, history)
@@ -65,6 +74,8 @@ with tempfile.TemporaryDirectory() as d:
         print("FINAL SAFE TEST: PASS")
         print("FAST CHECK/POLL: PASS")
         print("SMART SELECTOR: PASS")
+        print("TAKE PROFIT 5% / STOP LOSS 1%: PASS")
+        print("DAILY LOSS CAP 3% OF CONFIGURED BASE: PASS")
         print("TEST_MODE: PASS")
         print("NO LIVE ORDER: PASS")
     finally:
