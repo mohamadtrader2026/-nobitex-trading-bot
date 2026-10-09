@@ -20,8 +20,8 @@ assert abs(bot.MAX_VOLATILITY_PCT - 0.25) < 1e-9
 assert abs(bot.MIN_SCORE - 0.18) < 1e-9
 assert abs(bot.TAKE_PROFIT - 0.05) < 1e-9
 assert abs(bot.STOP_LOSS - 0.01) < 1e-9
-assert abs(bot.DAILY_LOSS_LIMIT_PCT - 0.03) < 1e-9
-assert abs(bot.daily_loss_limit_rials() - 30_000) < 1e-9
+assert abs(bot.DAILY_LOSS_LIMIT_RLS - 200_000) < 1e-9
+assert abs(bot.daily_loss_limit_rials() - 200_000) < 1e-9
 unknown_order = bot.OrderStatusUnknown("12345", "buy", "BTCIRT")
 assert unknown_order.order_id == "12345"
 assert unknown_order.order_type == "buy"
@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory() as d:
         bot.finalize_exit(loss_state, 97_000_000)
         assert abs(loss_state["daily_loss_rials"] - 31_970) < 1
         assert loss_state["in_position"] is False
-        assert loss_state["daily_loss_rials"] >= bot.daily_loss_limit_rials()
+        assert loss_state["daily_loss_rials"] < bot.daily_loss_limit_rials()
         history = {"BTCIRT": [100+i for i in range(21)], "ETHIRT": [100]*21}
         snapshots = {"BTCIRT": {"price": 122, "bid": 121, "ask": 123, "spread_pct": .10, "depth": 20_000_000}, "ETHIRT": {"price": 100, "bid": 99, "ask": 101, "spread_pct": .10, "depth": 20_000_000}}
         best, scored = bot.select_best_market(snapshots, history)
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory() as d:
         print("SMART SELECTOR: PASS")
         print("SPREAD / MOMENTUM / CONSISTENCY / VOLATILITY FILTERS: PASS")
         print("TAKE PROFIT 5% / STOP LOSS 1%: PASS")
-        print("DAILY LOSS CAP 3% OF CONFIGURED BASE: PASS")
+        print("DAILY LOSS CAP 200,000 RIALS/DAY: PASS")
         print("TEST_MODE: PASS")
         print("NO LIVE ORDER: PASS")
     finally:
