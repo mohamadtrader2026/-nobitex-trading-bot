@@ -38,6 +38,10 @@ MIN_SCORE = float(os.getenv("NOBITEX_MIN_SCORE", "0.18"))
 MAX_SPREAD_PCT = float(os.getenv("NOBITEX_MAX_SPREAD_PCT", "0.25"))
 MAX_VOLATILITY_PCT = float(os.getenv("NOBITEX_MAX_VOLATILITY_PCT", "0.25"))
 MIN_UP_MOVE_RATIO = float(os.getenv("NOBITEX_MIN_UP_MOVE_RATIO", "0.50"))
+MIN_BOOK_IMBALANCE = float(os.getenv("NOBITEX_MIN_BOOK_IMBALANCE", "0.40"))
+FEE_PCT = float(os.getenv("NOBITEX_FEE_PCT", "0.1"))
+if not (0 <= FEE_PCT < 5 and 0 <= MIN_BOOK_IMBALANCE <= 1):
+    raise ValueError("تنظیمات کارمزد یا عدم‌تعادل اردربوک نامعتبر است.")
 REENTRY_COOLDOWN_SECONDS = float(os.getenv("NOBITEX_REENTRY_COOLDOWN_SECONDS", "8"))
 
 TEST_MODE = os.getenv("NOBITEX_TEST_MODE", "true").lower() == "true"
@@ -99,11 +103,14 @@ def daily_loss_limit_rials():
 def finalize_exit(state, exit_price):
     entry = float(state.get("entry_price", 0))
     amount = float(state.get("amount", 0))
-    pnl_rials = (float(exit_price) - entry) * amount
+    exit_price = float(exit_price)
+    gross_pnl = (exit_price - entry) * amount
+    fees = (entry * amount + exit_price * amount) * (FEE_PCT / 100.0)
+    pnl_rials = gross_pnl - fees
     if pnl_rials < 0:
         state["daily_loss_rials"] = float(state.get("daily_loss_rials", 0.0)) + abs(pnl_rials)
     state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.time()})
-    log(f"📊 نتیجه معامله: {pnl_rials:,.0f} ریال | زیان تحقق‌یافته امروز: {state['daily_loss_rials']:,.0f}/{daily_loss_limit_rials():,.0f} ریال")
+    log(f"📊 نتیجه خالص تخمینی: {pnl_rials:,.0f} ریال (کارمزد تخمینی {fees:,.0f}) | زیان تحقق‌یافته امروز: {state['daily_loss_rials']:,.0f}/{daily_loss_limit_rials():,.0f} ریال")
     if state["daily_loss_rials"] >= daily_loss_limit_rials():
         log("🛑 سقف زیان روزانه رسید؛ ورودهای جدید تا روز UTC بعدی متوقف می‌شوند.")
 
@@ -133,8 +140,11 @@ def fetch_market_snapshot():
                         continue
                     bid, ask = float(bids[0][0]), float(asks[0][0])
                     spread = max(0.0, (ask - bid) / price * 100)
-                    depth = sum(float(x[0])*float(x[1]) for x in bids[:5]) + sum(float(x[0])*float(x[1]) for x in asks[:5])
-                    snapshots[symbol] = {"price": price, "bid": bid, "ask": ask, "spread_pct": spread, "depth": depth}
+                    bid_depth = sum(float(x[0])*float(x[1]) for x in bids[:5])
+                    ask_depth = sum(float(x[0])*float(x[1]) for x in asks[:5])
+                    depth = bid_depth + ask_depth
+                    book_imbalance = bid_depth / depth if depth > 0 else 0.5
+                    snapshots[symbol] = {"price": price, "bid": bid, "ask": ask, "spread_pct": spread, "depth": depth, "bid_depth": bid_depth, "ask_depth": ask_depth, "book_imbalance": book_imbalance}
                 except (TypeError, ValueError, IndexError):
                     continue
             if idx == 1:
@@ -166,7 +176,8 @@ def select_best_market(snapshots, history):
         returns_pct = [(prices[i] / prices[i - 1] - 1) * 100 for i in range(1, len(prices)) if prices[i - 1] > 0]
         volatility_pct = pstdev(returns_pct[-LONG_WINDOW:]) if len(returns_pct) >= 2 else 0.0
 
-        # Normalize trend and momentum to percentage points; penalize spread and choppy price action.
+        book_imbalance = float(snap.get("book_imbalance", 0.5))
+        # Normalize trend and momentum to percentage points; reward bid-side depth only modestly.
         trend_pct = trend * 100
         momentum_pct = momentum * 100
         score = (
@@ -176,6 +187,7 @@ def select_best_market(snapshots, history):
             + up_move_ratio * 0.15
             - snap["spread_pct"] * 1.2
             - volatility_pct * 0.8
+            + (book_imbalance - 0.5) * 0.4
         )
         eligible = (
             trend > 0
@@ -183,6 +195,7 @@ def select_best_market(snapshots, history):
             and up_move_ratio >= MIN_UP_MOVE_RATIO
             and snap["spread_pct"] <= MAX_SPREAD_PCT
             and volatility_pct <= MAX_VOLATILITY_PCT
+            and book_imbalance >= MIN_BOOK_IMBALANCE
             and score >= MIN_SCORE
         )
         scored.append((score, symbol, snap, trend, momentum, liquidity, up_move_ratio, volatility_pct, eligible))
@@ -303,7 +316,8 @@ def run_bot():
                     log(f"⚠️ داده {symbol} موجود نیست؛ فروش اجباری نمی‌کنیم.")
                     time.sleep(CHECK_SECONDS)
                     continue
-                price = snap["price"]
+                # Exit checks use executable bid, not last-traded price, to avoid optimistic triggers.
+                price = snap["bid"]
                 entry = state["entry_price"]
                 amount = state["amount"]
                 sl = entry * (1 - STOP_LOSS)
@@ -330,7 +344,7 @@ def run_bot():
                 if best:
                     score, symbol, snap, trend, momentum, liquidity, up_move_ratio, volatility_pct, _eligible = best
                     amount = TRADE_AMOUNT_RLS / snap["ask"]
-                    log(f"🏆 {symbol} | score={score:.4f} | trend={trend*100:.2f}% | momentum={momentum*100:.2f}% | spread={snap['spread_pct']:.2f}% | حرکت صعودی={best[6]*100:.0f}% | نوسان={best[7]:.3f}%")
+                    log(f"🏆 {symbol} | score={score:.4f} | trend={trend*100:.2f}% | momentum={momentum*100:.2f}% | spread={snap['spread_pct']:.2f}% | نسبت عمق خرید={snap.get('book_imbalance', 0.5)*100:.0f}% | حرکت صعودی={best[6]*100:.0f}% | نوسان={best[7]:.3f}%")
                     result = place_order("buy", amount, snap["ask"], symbol)
                     if result.get("filled"):
                         state.update({"in_position": True, "symbol": symbol, "entry_price": result["average_price"], "amount": result["amount"]})
