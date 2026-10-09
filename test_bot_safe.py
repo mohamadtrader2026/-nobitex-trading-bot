@@ -11,6 +11,10 @@ assert bot.TEST_MODE is True
 assert bot.CHECK_SECONDS <= 2.0
 assert bot.ORDER_POLL_SECONDS <= 0.5
 assert bot.CANDIDATE_SYMBOLS
+unknown_order = bot.OrderStatusUnknown("12345", "buy", "BTCIRT")
+assert unknown_order.order_id == "12345"
+assert unknown_order.order_type == "buy"
+assert unknown_order.symbol == "BTCIRT"
 
 with tempfile.TemporaryDirectory() as d:
     old = bot.STATE_FILE
