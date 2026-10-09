@@ -23,10 +23,9 @@ HISTORY_SIZE = LONG_WINDOW + 1
 TRADE_AMOUNT_RLS = 1_000_000
 STOP_LOSS = float(os.getenv("NOBITEX_STOP_LOSS_PCT", "0.01"))
 TAKE_PROFIT = float(os.getenv("NOBITEX_TAKE_PROFIT_PCT", "0.05"))
-DAILY_LOSS_LIMIT_PCT = float(os.getenv("NOBITEX_DAILY_LOSS_LIMIT_PCT", "0.03"))
-DAILY_LOSS_BASE_RLS = float(os.getenv("NOBITEX_DAILY_LOSS_BASE_RLS", str(TRADE_AMOUNT_RLS)))
-if not (0 < STOP_LOSS < 1 and 0 < TAKE_PROFIT < 1 and 0 < DAILY_LOSS_LIMIT_PCT < 1 and DAILY_LOSS_BASE_RLS > 0):
-    raise ValueError("تنظیمات حد سود/ضرر روزانه نامعتبر است.")
+DAILY_LOSS_LIMIT_RLS = 200_000.0
+if not (0 < STOP_LOSS < 1 and 0 < TAKE_PROFIT < 1):
+    raise ValueError("تنظیمات حد سود/ضرر نامعتبر است.")
 
 # سرعت بالاتر، بدون بی‌دقتی در ارسال سفارش
 CHECK_SECONDS = float(os.getenv("NOBITEX_CHECK_SECONDS", "1"))
@@ -97,7 +96,7 @@ def reset_daily_loss_if_new_day(state):
 
 
 def daily_loss_limit_rials():
-    return DAILY_LOSS_BASE_RLS * DAILY_LOSS_LIMIT_PCT
+    return DAILY_LOSS_LIMIT_RLS
 
 
 def finalize_exit(state, exit_price):
@@ -293,7 +292,7 @@ def run_bot():
         log(f"🛑 ربات به‌دلیل سفارش نامشخص قبلی متوقف می‌ماند؛ شناسه برای بررسی دستی: {state.get('pending_order_id') or 'نامشخص'}")
         raise SystemExit(2)
     reset_daily_loss_if_new_day(state)
-    log(f"🎯 حد سود={TAKE_PROFIT*100:.2f}% | 🛑 حد ضرر={STOP_LOSS*100:.2f}% | سقف زیان روزانه={DAILY_LOSS_LIMIT_PCT*100:.2f}% از پایه {DAILY_LOSS_BASE_RLS:,.0f} ریال ({daily_loss_limit_rials():,.0f} ریال)")
+    log(f"🎯 حد سود={TAKE_PROFIT*100:.2f}% | 🛑 حد ضرر={STOP_LOSS*100:.2f}% | سقف ثابت زیان روزانه={daily_loss_limit_rials():,.0f} ریال")
     if TEST_MODE:
         log("🛡️ TEST_MODE فعال است؛ سفارش واقعی ارسال نمی‌شود.")
 
