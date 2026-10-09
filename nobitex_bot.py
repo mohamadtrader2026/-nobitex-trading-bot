@@ -139,8 +139,10 @@ def select_best_market(snapshots, history):
 
 class OrderStatusUnknown(RuntimeError):
     """An order may have been accepted, but its final status is not confirmed."""
-    def __init__(self, order_id):
+    def __init__(self, order_id, order_type="unknown", symbol=DEFAULT_SYMBOL):
         self.order_id = str(order_id) if order_id is not None else "unknown"
+        self.order_type = str(order_type)
+        self.symbol = str(symbol)
         super().__init__(f"وضعیت سفارش {self.order_id} قطعی نیست؛ برای جلوگیری از سفارش تکراری، ربات متوقف می‌شود.")
 
 
@@ -185,14 +187,14 @@ def place_order(order_type, amount, price, symbol):
         raise RuntimeError(f"ثبت سفارش ناموفق بود: {result}")
     order_id = result.get("order", {}).get("id")
     if not order_id:
-        raise OrderStatusUnknown("unknown")
+        raise OrderStatusUnknown("unknown", order_type, symbol)
 
     # سریع status را چک می‌کنیم، اما تا وضعیت قطعی نیامده سفارش را تکرار نمی‌کنیم.
     for _ in range(ORDER_POLL_ATTEMPTS):
         try:
             status = get_order_status(order_id)
         except Exception as exc:
-            raise OrderStatusUnknown(order_id) from exc
+            raise OrderStatusUnknown(order_id, order_type, symbol) from exc
         order = status.get("order", {})
         if order.get("status") == "Done":
             return {
@@ -206,7 +208,7 @@ def place_order(order_type, amount, price, symbol):
         time.sleep(ORDER_POLL_SECONDS)
 
     # مهم: timeout را معامله انجام‌شده فرض نمی‌کنیم؛ از ارسال سفارش تکراری جلوگیری می‌شود.
-    raise OrderStatusUnknown(order_id)
+    raise OrderStatusUnknown(order_id, order_type, symbol)
 
 
 def run_bot():
@@ -275,8 +277,8 @@ def run_bot():
         except OrderStatusUnknown as exc:
             state["halted"] = True
             state["pending_order_id"] = exc.order_id
-            state["pending_order_type"] = "unknown"
-            state["pending_symbol"] = state.get("symbol", DEFAULT_SYMBOL)
+            state["pending_order_type"] = exc.order_type
+            state["pending_symbol"] = exc.symbol
             save_state(state)
             log(f"🛑 توقف ایمن: وضعیت سفارش قطعی نیست؛ سفارش جدید ارسال نمی‌شود. شناسه={exc.order_id}")
             break
