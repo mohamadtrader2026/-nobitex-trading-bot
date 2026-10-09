@@ -281,7 +281,7 @@ def run_bot():
             state["pending_symbol"] = exc.symbol
             save_state(state)
             log(f"🛑 توقف ایمن: وضعیت سفارش قطعی نیست؛ سفارش جدید ارسال نمی‌شود. شناسه={exc.order_id}")
-            break
+            raise SystemExit(2)
         except KeyboardInterrupt:
             save_state(state)
             log("⏹️ ربات متوقف شد.")
