@@ -3,7 +3,7 @@ import time
 import uuid
 import json
 import requests
-from statistics import mean
+from statistics import mean, pstdev
 from datetime import datetime, timezone
 
 API_ENV = os.getenv("NOBITEX_API_ENV", "testnet").lower()
@@ -34,8 +34,10 @@ ORDER_POLL_SECONDS = float(os.getenv("NOBITEX_ORDER_POLL_SECONDS", "0.25"))
 ORDER_POLL_ATTEMPTS = 20
 REQUEST_TIMEOUT = 5
 MAX_RUNTIME_SECONDS = int(os.getenv("NOBITEX_MAX_RUNTIME_SECONDS", "0"))
-MIN_SCORE = float(os.getenv("NOBITEX_MIN_SCORE", "0.15"))
-MAX_SPREAD_PCT = float(os.getenv("NOBITEX_MAX_SPREAD_PCT", "0.80"))
+MIN_SCORE = float(os.getenv("NOBITEX_MIN_SCORE", "0.18"))
+MAX_SPREAD_PCT = float(os.getenv("NOBITEX_MAX_SPREAD_PCT", "0.25"))
+MAX_VOLATILITY_PCT = float(os.getenv("NOBITEX_MAX_VOLATILITY_PCT", "0.25"))
+MIN_UP_MOVE_RATIO = float(os.getenv("NOBITEX_MIN_UP_MOVE_RATIO", "0.50"))
 REENTRY_COOLDOWN_SECONDS = float(os.getenv("NOBITEX_REENTRY_COOLDOWN_SECONDS", "8"))
 
 TEST_MODE = os.getenv("NOBITEX_TEST_MODE", "true").lower() == "true"
@@ -143,6 +145,7 @@ def fetch_market_snapshot():
     raise RuntimeError(f"دریافت بازار ناموفق بود: {last_error}")
 
 
+
 def select_best_market(snapshots, history):
     scored = []
     for symbol, snap in snapshots.items():
@@ -152,21 +155,44 @@ def select_best_market(snapshots, history):
             del prices[:-HISTORY_SIZE]
         if len(prices) < HISTORY_SIZE:
             continue
+
         short_ma = mean(prices[-SHORT_WINDOW:])
         long_ma = mean(prices[-LONG_WINDOW:])
         momentum = prices[-1] / prices[-SHORT_WINDOW] - 1
         trend = short_ma / long_ma - 1
         liquidity = min(1.0, snap["depth"] / max(TRADE_AMOUNT_RLS * 5, 1))
-        spread_penalty = min(1.0, snap["spread_pct"] / max(MAX_SPREAD_PCT, 0.01))
-        score = trend * 4 + momentum * 3 + liquidity * 0.25 - spread_penalty * 0.25
-        scored.append((score, symbol, snap, trend, momentum, liquidity))
+        recent = prices[-SHORT_WINDOW:]
+        up_move_ratio = sum(1 for i in range(1, len(recent)) if recent[i] > recent[i - 1]) / max(len(recent) - 1, 1)
+        returns_pct = [(prices[i] / prices[i - 1] - 1) * 100 for i in range(1, len(prices)) if prices[i - 1] > 0]
+        volatility_pct = pstdev(returns_pct[-LONG_WINDOW:]) if len(returns_pct) >= 2 else 0.0
+
+        # Normalize trend and momentum to percentage points; penalize spread and choppy price action.
+        trend_pct = trend * 100
+        momentum_pct = momentum * 100
+        score = (
+            trend_pct * 2.0
+            + momentum_pct * 1.5
+            + liquidity * 0.20
+            + up_move_ratio * 0.15
+            - snap["spread_pct"] * 1.2
+            - volatility_pct * 0.8
+        )
+        eligible = (
+            trend > 0
+            and momentum > 0
+            and up_move_ratio >= MIN_UP_MOVE_RATIO
+            and snap["spread_pct"] <= MAX_SPREAD_PCT
+            and volatility_pct <= MAX_VOLATILITY_PCT
+            and score >= MIN_SCORE
+        )
+        scored.append((score, symbol, snap, trend, momentum, liquidity, up_move_ratio, volatility_pct, eligible))
+
     scored.sort(reverse=True, key=lambda x: x[0])
-    if not scored:
-        return None, []
-    best = scored[0]
-    if best[0] < MIN_SCORE or best[3] <= 0 or best[4] <= 0 or best[2]["spread_pct"] > MAX_SPREAD_PCT:
-        return None, scored
-    return best, scored
+    # Don't let one poor market prevent selecting a different market that passes every filter.
+    for candidate in scored:
+        if candidate[8]:
+            return candidate, scored
+    return None, scored
 
 
 class OrderStatusUnknown(RuntimeError):
@@ -304,7 +330,7 @@ def run_bot():
                 if best:
                     score, symbol, snap, trend, momentum, liquidity = best
                     amount = TRADE_AMOUNT_RLS / snap["ask"]
-                    log(f"🏆 {symbol} | score={score:.4f} | trend={trend*100:.2f}% | momentum={momentum*100:.2f}% | spread={snap['spread_pct']:.2f}%")
+                    log(f"🏆 {symbol} | score={score:.4f} | trend={trend*100:.2f}% | momentum={momentum*100:.2f}% | spread={snap['spread_pct']:.2f}% | حرکت صعودی={best[6]*100:.0f}% | نوسان={best[7]:.3f}%")
                     result = place_order("buy", amount, snap["ask"], symbol)
                     if result.get("filled"):
                         state.update({"in_position": True, "symbol": symbol, "entry_price": result["average_price"], "amount": result["amount"]})
