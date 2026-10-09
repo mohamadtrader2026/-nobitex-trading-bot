@@ -1,6 +1,8 @@
 import os
 import tempfile
 import importlib.util
+import requests
+from unittest.mock import patch
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("nobitex_bot_test_module", Path("nobitex_bot.py"))
@@ -15,6 +17,30 @@ unknown_order = bot.OrderStatusUnknown("12345", "buy", "BTCIRT")
 assert unknown_order.order_id == "12345"
 assert unknown_order.order_type == "buy"
 assert unknown_order.symbol == "BTCIRT"
+
+# Simulate an accepted order whose status request times out. This must fail closed
+# and must not submit a second order. No network call is made.
+class FakeResponse:
+    def raise_for_status(self):
+        pass
+    def json(self):
+        return {"status": "ok", "order": {"id": 12345}}
+
+old_test_mode, old_token = bot.TEST_MODE, bot.API_TOKEN
+try:
+    bot.TEST_MODE = False
+    bot.API_TOKEN = "test-token"
+    with patch.object(bot.SESSION, "post", side_effect=[FakeResponse(), requests.Timeout("simulated timeout")]) as mocked_post:
+        try:
+            bot.place_order("buy", 0.01, 100_000_000, "BTCIRT")
+            raise AssertionError("OrderStatusUnknown was expected")
+        except bot.OrderStatusUnknown as exc:
+            assert exc.order_id == "12345"
+            assert exc.order_type == "buy"
+            assert exc.symbol == "BTCIRT"
+        assert mocked_post.call_count == 2  # one order submission + one status poll
+finally:
+    bot.TEST_MODE, bot.API_TOKEN = old_test_mode, old_token
 
 with tempfile.TemporaryDirectory() as d:
     old = bot.STATE_FILE
