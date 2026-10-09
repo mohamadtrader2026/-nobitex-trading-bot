@@ -60,9 +60,13 @@ def load_state():
             "amount": float(s.get("amount", 0)),
             "history": s.get("history", {}),
             "last_exit_at": float(s.get("last_exit_at", 0)),
+            "halted": bool(s.get("halted", False)),
+            "pending_order_id": str(s.get("pending_order_id", "")),
+            "pending_order_type": str(s.get("pending_order_type", "")),
+            "pending_symbol": str(s.get("pending_symbol", "")),
         }
     except (FileNotFoundError, ValueError, TypeError):
-        return {"in_position": False, "symbol": DEFAULT_SYMBOL, "entry_price": 0, "amount": 0, "history": {}, "last_exit_at": 0}
+        return {"in_position": False, "symbol": DEFAULT_SYMBOL, "entry_price": 0, "amount": 0, "history": {}, "last_exit_at": 0, "halted": False, "pending_order_id": "", "pending_order_type": "", "pending_symbol": ""}
 
 
 def save_state(state):
@@ -133,6 +137,15 @@ def select_best_market(snapshots, history):
     return best, scored
 
 
+class OrderStatusUnknown(RuntimeError):
+    """An order may have been accepted, but its final status is not confirmed."""
+    def __init__(self, order_id, order_type="unknown", symbol=DEFAULT_SYMBOL):
+        self.order_id = str(order_id) if order_id is not None else "unknown"
+        self.order_type = str(order_type)
+        self.symbol = str(symbol)
+        super().__init__(f"وضعیت سفارش {self.order_id} قطعی نیست؛ برای جلوگیری از سفارش تکراری، ربات متوقف می‌شود.")
+
+
 def get_order_status(order_id):
     r = SESSION.post(
         f"{TRADE_API_BASE}/market/orders/status",
@@ -174,11 +187,14 @@ def place_order(order_type, amount, price, symbol):
         raise RuntimeError(f"ثبت سفارش ناموفق بود: {result}")
     order_id = result.get("order", {}).get("id")
     if not order_id:
-        raise RuntimeError(f"شناسه سفارش پیدا نشد: {result}")
+        raise OrderStatusUnknown("unknown", order_type, symbol)
 
     # سریع status را چک می‌کنیم، اما تا وضعیت قطعی نیامده سفارش را تکرار نمی‌کنیم.
     for _ in range(ORDER_POLL_ATTEMPTS):
-        status = get_order_status(order_id)
+        try:
+            status = get_order_status(order_id)
+        except Exception as exc:
+            raise OrderStatusUnknown(order_id, order_type, symbol) from exc
         order = status.get("order", {})
         if order.get("status") == "Done":
             return {
@@ -192,7 +208,7 @@ def place_order(order_type, amount, price, symbol):
         time.sleep(ORDER_POLL_SECONDS)
 
     # مهم: timeout را معامله انجام‌شده فرض نمی‌کنیم؛ از ارسال سفارش تکراری جلوگیری می‌شود.
-    raise RuntimeError("وضعیت سفارش قطعی نشد؛ سفارش تکراری ارسال نمی‌شود.")
+    raise OrderStatusUnknown(order_id, order_type, symbol)
 
 
 def run_bot():
@@ -202,7 +218,11 @@ def run_bot():
     log("   NOBITEX SMART FAST BOT")
     log("================================")
     log(f"محیط={API_ENV} | حالت={'آزمایشی' if TEST_MODE else 'واقعی'} | فاصله بررسی={CHECK_SECONDS}s | poll سفارش={ORDER_POLL_SECONDS}s")
-    log("🛡️ TEST_MODE فعال است؛ سفارش واقعی ارسال نمی‌شود.")
+    if state.get("halted"):
+        log(f"🛑 ربات به‌دلیل سفارش نامشخص قبلی متوقف می‌ماند؛ شناسه برای بررسی دستی: {state.get('pending_order_id') or 'نامشخص'}")
+        raise SystemExit(2)
+    if TEST_MODE:
+        log("🛡️ TEST_MODE فعال است؛ سفارش واقعی ارسال نمی‌شود.")
 
     while True:
         if MAX_RUNTIME_SECONDS > 0 and time.monotonic() - started_at >= MAX_RUNTIME_SECONDS:
@@ -231,12 +251,12 @@ def run_bot():
                     log(f"🔴 SL سریع فعال شد: {symbol}")
                     result = place_order("sell", amount, snap["bid"], symbol)
                     if result.get("filled"):
-                        state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.monotonic()})
+                        state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.time()})
                 elif price >= tp:
                     log(f"🟢 TP فعال شد: {symbol}")
                     result = place_order("sell", amount, snap["bid"], symbol)
                     if result.get("filled"):
-                        state.update({"in_position": False, "entry_price": 0, "amount": 0})
+                        state.update({"in_position": False, "entry_price": 0, "amount": 0, "last_exit_at": time.time()})
             else:
                 if time.monotonic() - state.get("last_exit_at", 0) < REENTRY_COOLDOWN_SECONDS:
                     time.sleep(CHECK_SECONDS)
@@ -254,6 +274,14 @@ def run_bot():
                     log("⏳ سیگنال دقیق و کم‌ریسک کافی نیست؛ فعلاً معامله نمی‌کنیم.")
             save_state(state)
             time.sleep(CHECK_SECONDS)
+        except OrderStatusUnknown as exc:
+            state["halted"] = True
+            state["pending_order_id"] = exc.order_id
+            state["pending_order_type"] = exc.order_type
+            state["pending_symbol"] = exc.symbol
+            save_state(state)
+            log(f"🛑 توقف ایمن: وضعیت سفارش قطعی نیست؛ سفارش جدید ارسال نمی‌شود. شناسه={exc.order_id}")
+            raise SystemExit(2)
         except KeyboardInterrupt:
             save_state(state)
             log("⏹️ ربات متوقف شد.")

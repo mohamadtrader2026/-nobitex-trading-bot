@@ -30,7 +30,6 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Safe unit test
         run: python test_bot_safe.py
-        continue-on-error: true
       - name: Run safe bot
         run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
@@ -44,7 +43,7 @@ jobs:
   cycle-2:
     name: Safe cycle 2 (6h)
     needs: cycle-1
-    if: always()
+    if: needs.cycle-1.result == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
@@ -67,7 +66,6 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Safe unit test
         run: python test_bot_safe.py
-        continue-on-error: true
       - name: Run safe bot
         run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
@@ -81,7 +79,7 @@ jobs:
   cycle-3:
     name: Safe cycle 3 (6h)
     needs: cycle-2
-    if: always()
+    if: needs.cycle-2.result == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
@@ -104,7 +102,6 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Safe unit test
         run: python test_bot_safe.py
-        continue-on-error: true
       - name: Run safe bot
         run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
@@ -118,7 +115,7 @@ jobs:
   cycle-4:
     name: Safe cycle 4 (6h)
     needs: cycle-3
-    if: always()
+    if: needs.cycle-3.result == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
@@ -141,7 +138,6 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Safe unit test
         run: python test_bot_safe.py
-        continue-on-error: true
       - name: Run safe bot
         run: python nobitex_bot.py
       - uses: actions/upload-artifact@v4
