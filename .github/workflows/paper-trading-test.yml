@@ -2,6 +2,8 @@ name: Paper Trading - Four Sequential 6-Hour Cycles
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 0 * * *'
   push:
     paths:
       - ".github/workflows/paper-trading-test.yml"
