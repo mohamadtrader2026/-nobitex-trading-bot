@@ -26,8 +26,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Python files
-        run: python -m py_compile nobitex_bot.py test_bot_safe.py backtest.py test_backtest.py
+        run: python -m py_compile nobitex_bot.py test_bot_safe.py backtest.py test_backtest.py paper_long_short.py test_paper_long_short.py
       - name: Run safe unit tests
         run: python test_bot_safe.py
       - name: Run offline backtest tests
         run: python -m unittest -v test_backtest.py
+      - name: Run paper long-short tests
+        run: python -m unittest -v test_paper_long_short.py
