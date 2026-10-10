@@ -1,0 +1,43 @@
+name: Paper Trading Smoke Test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/paper-trading-test.yml"
+      - "paper_long_short.py"
+      - "requirements.txt"
+permissions:
+  contents: read
+jobs:
+  paper-test:
+    name: Safe paper-trading test (3 minutes)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    env:
+      PAPER_INTERVAL_SECONDS: "15"
+      PAPER_LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run paper bot for a bounded test
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=10s 180s python -u paper_long_short.py 2>&1 | tee paper-test.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
+            exit "$code"
+          fi
+      - name: Save test logs and simulated state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-trading-test-results
+          path: |
+            paper-test.log
+            paper_long_short_state.json
+          if-no-files-found: warn
