@@ -1,20 +1,25 @@
-name: Paper Trading Smoke Test
+name: Paper Trading - Four Sequential 6-Hour Cycles
+
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 */6 * * *"
   push:
     paths:
       - ".github/workflows/paper-trading-test.yml"
       - "paper_long_short.py"
       - "requirements.txt"
+
 permissions:
   contents: read
+
+concurrency:
+  group: paper-long-short-four-cycles
+  cancel-in-progress: false
+
 jobs:
-  paper-test:
-    name: Safe paper-trading test (3 minutes)
+  cycle-1:
+    name: "Cycle 1 of 4 (about 6 hours)"
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 360
     env:
       PAPER_INTERVAL_SECONDS: "15"
       PAPER_LOG_LEVEL: INFO
@@ -25,21 +30,155 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run paper bot for a bounded test
+      - name: Initialize simulated state
+        run: |
+          if [ ! -f paper_long_short_state.json ]; then
+            printf '%s\n' '{"history": {}, "position": null, "realized_pnl": 0.0, "trades": 0}' > paper_long_short_state.json
+          fi
+      - name: Run paper bot for cycle 1
         shell: bash
         run: |
           set +e
-          timeout --signal=INT --kill-after=10s 180s python -u paper_long_short.py 2>&1 | tee paper-test.log
+          timeout --signal=INT --kill-after=10s 21300s python -u paper_long_short.py 2>&1 | tee paper-cycle-1.log
           code=${PIPESTATUS[0]}
-          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
-            exit "$code"
-          fi
-      - name: Save test logs and simulated state
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then exit "$code"; fi
+      - name: Save simulated state for next cycle
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: paper-trading-test-results
-          path: |
-            paper-test.log
-            paper_long_short_state.json
+          name: paper-state-cycle-1
+          path: paper_long_short_state.json
+          if-no-files-found: error
+      - name: Save cycle logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-logs-cycle-1
+          path: paper-cycle-1.log
+          if-no-files-found: warn
+
+  cycle-2:
+    name: "Cycle 2 of 4 (about 6 hours)"
+    needs: cycle-1
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      PAPER_INTERVAL_SECONDS: "15"
+      PAPER_LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore simulated state from cycle 1
+        uses: actions/download-artifact@v4
+        with:
+          name: paper-state-cycle-1
+          path: .
+      - name: Run paper bot for cycle 2
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=10s 21300s python -u paper_long_short.py 2>&1 | tee paper-cycle-2.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then exit "$code"; fi
+      - name: Save simulated state for next cycle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-state-cycle-2
+          path: paper_long_short_state.json
+          if-no-files-found: error
+      - name: Save cycle logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-logs-cycle-2
+          path: paper-cycle-2.log
+          if-no-files-found: warn
+
+  cycle-3:
+    name: "Cycle 3 of 4 (about 6 hours)"
+    needs: cycle-2
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      PAPER_INTERVAL_SECONDS: "15"
+      PAPER_LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore simulated state from cycle 2
+        uses: actions/download-artifact@v4
+        with:
+          name: paper-state-cycle-2
+          path: .
+      - name: Run paper bot for cycle 3
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=10s 21300s python -u paper_long_short.py 2>&1 | tee paper-cycle-3.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then exit "$code"; fi
+      - name: Save simulated state for next cycle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-state-cycle-3
+          path: paper_long_short_state.json
+          if-no-files-found: error
+      - name: Save cycle logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-logs-cycle-3
+          path: paper-cycle-3.log
+          if-no-files-found: warn
+
+  cycle-4:
+    name: "Cycle 4 of 4 (about 6 hours)"
+    needs: cycle-3
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      PAPER_INTERVAL_SECONDS: "15"
+      PAPER_LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore simulated state from cycle 3
+        uses: actions/download-artifact@v4
+        with:
+          name: paper-state-cycle-3
+          path: .
+      - name: Run paper bot for cycle 4
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=10s 21300s python -u paper_long_short.py 2>&1 | tee paper-cycle-4.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then exit "$code"; fi
+      - name: Save final simulated state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-state-cycle-4
+          path: paper_long_short_state.json
+          if-no-files-found: error
+      - name: Save cycle logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-logs-cycle-4
+          path: paper-cycle-4.log
           if-no-files-found: warn
