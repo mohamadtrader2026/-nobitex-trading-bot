@@ -41,6 +41,7 @@ VIRTUAL_NOTIONAL_RLS = max(1.0, float(os.getenv("PAPER_NOTIONAL_RLS", "1000000")
 STATE_PATH = Path(os.getenv("PAPER_STATE_FILE", "paper_long_short_state.json"))
 HTTP_TIMEOUT_SECONDS = 10
 MAX_HISTORY = SLOW + 5
+MAX_SPREAD_PCT = max(0.0, float(os.getenv("PAPER_MAX_SPREAD_PCT", "0.25"))) / 100
 
 logging.basicConfig(
     level=os.getenv("PAPER_LOG_LEVEL", "INFO").upper(),
@@ -95,6 +96,10 @@ def fetch_prices(session: requests.Session | None = None) -> dict[str, dict[str,
 
         mid = (bid + ask) / 2
         if not math.isfinite(mid) or mid <= 0:
+            continue
+        spread_pct = (ask - bid) / mid
+        # Avoid paper entries in unusually wide markets; the threshold is configurable.
+        if spread_pct < 0 or spread_pct > MAX_SPREAD_PCT:
             continue
         result[symbol] = {"last": last, "bid": bid, "ask": ask, "mid": mid}
     return result
@@ -299,6 +304,8 @@ def main() -> None:
                 log.warning("این چرخه هیچ دفتر سفارش معتبر و دوطرفه‌ای نداشت؛ تصمیم جدیدی گرفته نشد.")
         except KeyboardInterrupt:
             log.info("توقف توسط کاربر؛ وضعیت ذخیره می‌شود.")
+            save_state(state)
+            break
             save_state(state)
             break
         except (requests.RequestException, ValueError, RuntimeError, json.JSONDecodeError) as exc:
