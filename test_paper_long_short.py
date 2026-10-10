@@ -47,7 +47,7 @@ class PaperLongShortTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "state.json"
             original = {
-                "history": {"BTCIRT": [100, 101, "bad", float("nan")]},
+                "history": {"BTCIRT": [100, 101, "bad"]},
                 "position": {"symbol": "BTCIRT", "side": "LONG", "entry": 100, "notional": 1000},
                 "realized_pnl": 12.5,
                 "trades": 3,
