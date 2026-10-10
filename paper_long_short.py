@@ -27,7 +27,7 @@ API_URL = "https://apiv2.nobitex.ir/v3/orderbook/all"
 SYMBOLS = tuple(dict.fromkeys(
     s.strip().upper()
     for s in os.getenv(
-        "PAPER_SYMBOLS", "BTCIRT,ETHIRT,USDTIRT,DOGEIRT,XRPIRT,SOLIRT,SHIBIRT"
+        "PAPER_SYMBOLS", "BTCIRT,ETHIRT,USDTIRT,DOGEIRT,XRPIRT,SOLIRT,SHIBIRT,BNBIRT"
     ).split(",")
     if s.strip()
 ))
