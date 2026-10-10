@@ -7,6 +7,9 @@ import paper_long_short as bot
 
 
 class PaperLongShortTests(unittest.TestCase):
+    def test_shiba_is_in_default_symbols(self):
+        self.assertIn("SHIBIRT", bot.SYMBOLS)
+
     def test_signal_long_short_and_flat(self):
         rising = [float(i) for i in range(1, 31)]
         falling = [float(i) for i in range(30, 0, -1)]
