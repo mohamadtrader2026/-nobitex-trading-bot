@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import Mock
 from pathlib import Path
 
 import paper_long_short as bot
@@ -37,6 +38,31 @@ class PaperLongShortTests(unittest.TestCase):
         self.assertAlmostEqual(net, 100.0 - 1.0 - 1.1)
         self.assertIsNone(state["position"])
         self.assertEqual(state["trades"], 1)
+
+    def test_fetch_prices_skips_wide_spreads(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "status": "ok",
+            "BTCIRT": {
+                "lastTradePrice": "100",
+                "bids": [["99", "10"]],
+                "asks": [["101", "10"]],
+            },
+            "ETHIRT": {
+                "lastTradePrice": "100",
+                "bids": [["99.95", "10"]],
+                "asks": [["100.05", "10"]],
+            },
+        }
+        session = Mock()
+        session.get.return_value = response
+
+        prices = bot.fetch_prices(session=session)
+
+        self.assertNotIn("BTCIRT", prices)
+        self.assertIn("ETHIRT", prices)
+        session.get.assert_called_once_with(bot.API_URL, timeout=bot.HTTP_TIMEOUT_SECONDS)
 
     def test_invalid_quote_does_not_open_position(self):
         state = {"history": {}, "position": None, "realized_pnl": 0.0, "trades": 0}
