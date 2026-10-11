@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import json
+import math
 import requests
 from statistics import mean, pstdev
 from datetime import datetime, timezone
@@ -20,7 +21,10 @@ DEFAULT_SYMBOL = "BTCIRT"
 SHORT_WINDOW = 5
 LONG_WINDOW = 20
 HISTORY_SIZE = LONG_WINDOW + 1
-TRADE_AMOUNT_RLS = 1_000_000
+TRADE_AMOUNT_RLS = 1_000_000  # Paper/test sizing only; live sizing requires an explicit cap.
+LIVE_ORDERS_ENABLED = os.getenv("NOBITEX_ENABLE_LIVE_ORDERS", "false").strip().lower() == "true"
+LIVE_ORDER_ACK = os.getenv("NOBITEX_LIVE_TRADING_ACK", "").strip()
+LIVE_MAX_TRADE_RLS_RAW = os.getenv("NOBITEX_MAX_TRADE_RLS", "").strip()
 STOP_LOSS = float(os.getenv("NOBITEX_STOP_LOSS_PCT", "0.01"))
 TAKE_PROFIT = float(os.getenv("NOBITEX_TAKE_PROFIT_PCT", "0.05"))
 DAILY_LOSS_LIMIT_RLS = 200_000.0
@@ -216,6 +220,66 @@ class OrderStatusUnknown(RuntimeError):
         super().__init__(f"وضعیت سفارش {self.order_id} قطعی نیست؛ برای جلوگیری از سفارش تکراری، ربات متوقف می‌شود.")
 
 
+
+def configured_live_max_trade_rials():
+    """Return an explicitly configured positive whole-Rial cap, otherwise None."""
+    try:
+        value = float(LIVE_MAX_TRADE_RLS_RAW)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(value) or value <= 0 or not value.is_integer():
+        return None
+    return int(value)
+
+
+def validate_live_configuration():
+    """Fail closed unless live mode has several explicit, independent opt-ins."""
+    if TEST_MODE:
+        raise RuntimeError("حالت TEST_MODE فعال است؛ سفارش واقعی مجاز نیست.")
+    if API_ENV != "mainnet":
+        raise RuntimeError("برای بررسی حالت واقعی، NOBITEX_API_ENV باید mainnet باشد.")
+    if not LIVE_ORDERS_ENABLED:
+        raise RuntimeError("ارسال سفارش واقعی قفل است؛ NOBITEX_ENABLE_LIVE_ORDERS فعال نیست.")
+    if LIVE_ORDER_ACK != "I_UNDERSTAND_LIVE_ORDERS":
+        raise RuntimeError("تأیید صریح NOBITEX_LIVE_TRADING_ACK موجود نیست.")
+    if not API_TOKEN:
+        raise RuntimeError("توکن API در محیط اجرا تنظیم نشده است.")
+    if configured_live_max_trade_rials() is None:
+        raise RuntimeError("سقف هر معامله مشخص نیست؛ NOBITEX_MAX_TRADE_RLS باید عدد صحیح مثبت بر حسب ریال باشد.")
+
+
+def validate_live_order(order_type, amount, price, symbol):
+    """Validate an order locally before any network request to the trading API."""
+    validate_live_configuration()
+    if order_type not in {"buy", "sell"}:
+        raise RuntimeError("نوع سفارش نامعتبر است.")
+    if not isinstance(symbol, str) or not symbol.endswith("IRT"):
+        raise RuntimeError("این سقف ریسک فقط برای بازارهای ریالی IRT تعریف شده است.")
+    if not math.isfinite(float(amount)) or float(amount) <= 0:
+        raise RuntimeError("مقدار سفارش باید مثبت و معتبر باشد.")
+    if not math.isfinite(float(price)) or float(price) <= 0:
+        raise RuntimeError("قیمت مرجع سفارش باید مثبت و معتبر باشد.")
+    # Enforce the cap on new exposure. Never block a sell solely because a
+    # position appreciated above the entry cap; exits must remain possible.
+    if order_type == "buy":
+        cap = configured_live_max_trade_rials()
+        notional_with_estimated_fee = float(amount) * float(price) * (1 + FEE_PCT / 100.0)
+        if not math.isfinite(notional_with_estimated_fee) or notional_with_estimated_fee > cap:
+            raise RuntimeError(
+                f"ارزش خرید با کارمزد تخمینی از سقف هر معامله ({cap:,} ریال) بیشتر است."
+            )
+
+
+def live_trade_budget_rials():
+    """Return a fee-inclusive entry budget; live cap is intentionally unset by default."""
+    if TEST_MODE:
+        return float(TRADE_AMOUNT_RLS)
+    cap = configured_live_max_trade_rials()
+    if cap is None:
+        raise RuntimeError("سقف هر معامله مشخص نیست؛ ورود جدید متوقف شد.")
+    return cap / (1 + FEE_PCT / 100.0)
+
+
 def get_order_status(order_id):
     r = SESSION.post(
         f"{TRADE_API_BASE}/market/orders/status",
@@ -232,8 +296,7 @@ def place_order(order_type, amount, price, symbol):
         log(f"🧪 [TEST MODE] {order_type.upper()} {symbol} | مقدار={amount:.8f} | قیمت={price:,.0f}")
         return {"status": "test", "filled": True, "amount": amount, "average_price": price}
 
-    if not API_TOKEN:
-        raise RuntimeError("NOBITEX_API_TOKEN تنظیم نشده است.")
+    validate_live_order(order_type, amount, price, symbol)
 
     src_currency = symbol[:-3].lower() if symbol.endswith("IRT") else symbol[:-4].lower()
     dst_currency = "rls" if symbol.endswith("IRT") else "usdt"
@@ -282,6 +345,12 @@ def place_order(order_type, amount, price, symbol):
 
 
 def run_bot():
+    if not TEST_MODE:
+        try:
+            validate_live_configuration()
+        except RuntimeError as exc:
+            log(f"🛑 پیش‌بررسی ایمنی ناموفق؛ بدون ارسال سفارش متوقف شد: {exc}")
+            raise SystemExit(2)
     state = load_state()
     started_at = time.monotonic()
     log("================================")
@@ -342,7 +411,7 @@ def run_bot():
                 best, scored = select_best_market(snapshots, state["history"])
                 if best:
                     score, symbol, snap, trend, momentum, liquidity, up_move_ratio, volatility_pct, _eligible = best
-                    amount = TRADE_AMOUNT_RLS / snap["ask"]
+                    amount = live_trade_budget_rials() / snap["ask"]
                     log(f"🏆 {symbol} | score={score:.4f} | trend={trend*100:.2f}% | momentum={momentum*100:.2f}% | spread={snap['spread_pct']:.2f}% | نسبت عمق خرید={snap.get('book_imbalance', 0.5)*100:.0f}% | حرکت صعودی={best[6]*100:.0f}% | نوسان={best[7]:.3f}%")
                     result = place_order("buy", amount, snap["ask"], symbol)
                     if result.get("filled"):

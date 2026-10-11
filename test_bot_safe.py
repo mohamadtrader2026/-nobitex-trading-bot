@@ -10,6 +10,8 @@ bot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bot)
 
 assert bot.TEST_MODE is True
+assert bot.LIVE_ORDERS_ENABLED is False
+assert bot.configured_live_max_trade_rials() is None
 assert bot.CHECK_SECONDS <= 2.0
 assert bot.ORDER_POLL_SECONDS <= 0.5
 assert bot.CANDIDATE_SYMBOLS
@@ -35,10 +37,38 @@ class FakeResponse:
     def json(self):
         return {"status": "ok", "order": {"id": 12345}}
 
-old_test_mode, old_token = bot.TEST_MODE, bot.API_TOKEN
+old_live_globals = (
+    bot.TEST_MODE, bot.API_TOKEN, bot.API_ENV, bot.LIVE_ORDERS_ENABLED,
+    bot.LIVE_ORDER_ACK, bot.LIVE_MAX_TRADE_RLS_RAW,
+)
 try:
+    # Missing cap/explicit opt-in must fail locally before any network call.
     bot.TEST_MODE = False
+    bot.API_ENV = "mainnet"
     bot.API_TOKEN = "test-token"
+    bot.LIVE_ORDERS_ENABLED = False
+    bot.LIVE_ORDER_ACK = ""
+    bot.LIVE_MAX_TRADE_RLS_RAW = ""
+    with patch.object(bot.SESSION, "post") as blocked_post:
+        try:
+            bot.place_order("buy", 0.01, 100_000_000, "BTCIRT")
+            raise AssertionError("Live order must be blocked without explicit opt-in and cap")
+        except RuntimeError as exc:
+            assert "قفل" in str(exc)
+        blocked_post.assert_not_called()
+
+    # Exercise order-status timeout handling with mock HTTP only; no live request occurs.
+    bot.LIVE_ORDERS_ENABLED = True
+    bot.LIVE_ORDER_ACK = "I_UNDERSTAND_LIVE_ORDERS"
+    bot.LIVE_MAX_TRADE_RLS_RAW = "2000000"
+    with patch.object(bot.SESSION, "post", side_effect=[FakeResponse(), requests.Timeout("simulated timeout")]) as mocked_post:
+        try:
+            bot.place_order("buy", 0.03, 100_000_000, "BTCIRT")
+            raise AssertionError("Over-cap order must be rejected")
+        except RuntimeError as exc:
+            assert "سقف" in str(exc)
+        mocked_post.assert_not_called()
+
     with patch.object(bot.SESSION, "post", side_effect=[FakeResponse(), requests.Timeout("simulated timeout")]) as mocked_post:
         try:
             bot.place_order("buy", 0.01, 100_000_000, "BTCIRT")
@@ -47,9 +77,12 @@ try:
             assert exc.order_id == "12345"
             assert exc.order_type == "buy"
             assert exc.symbol == "BTCIRT"
-        assert mocked_post.call_count == 2  # one order submission + one status poll
+        assert mocked_post.call_count == 2  # mocked order submission + mocked status poll
 finally:
-    bot.TEST_MODE, bot.API_TOKEN = old_test_mode, old_token
+    (
+        bot.TEST_MODE, bot.API_TOKEN, bot.API_ENV, bot.LIVE_ORDERS_ENABLED,
+        bot.LIVE_ORDER_ACK, bot.LIVE_MAX_TRADE_RLS_RAW,
+    ) = old_live_globals
 
 with tempfile.TemporaryDirectory() as d:
     old = bot.STATE_FILE
