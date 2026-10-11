@@ -14,8 +14,8 @@ This checklist is a preparation artifact only. It does not change runtime tradin
 
 ## Required engineering gates before any live-trading review
 
-- [ ] Add a fail-closed live-mode guard so missing/invalid risk configuration prevents order submission.
-- [ ] Define and enforce a maximum per-order notional in Rials, including fees and rounding; reject values above the configured cap.
+- [x] Add a fail-closed live-mode guard: TEST MODE remains the default, live orders need separate explicit opt-ins, and missing/invalid risk configuration prevents order submission. (Implemented; requires CI verification.)
+- [x] Require an explicit positive whole-Rial maximum for new buy exposure and reject buys above the cap including estimated fees. The cap remains UNSET by default; sell exits are not blocked by the entry cap. (Implemented; requires CI verification.)
 - [ ] Validate available balance, market minimum/step size, symbol support, and order precision before submitting.
 - [ ] On startup, reconcile exchange balances, open orders, and recent fills with persisted bot state. Do not assume an empty local state means no position exists.
 - [ ] Make order submission idempotent where supported; on uncertain outcomes, halt entries and reconcile instead of retrying blindly.
@@ -24,7 +24,7 @@ This checklist is a preparation artifact only. It does not change runtime tradin
 - [ ] Ensure a daily loss limit, maximum exposure, and emergency stop are enforced independently of strategy signals.
 - [ ] Keep API credentials in GitHub Actions Secrets or an equivalent secret manager. Use least privilege; disable withdrawals.
 - [ ] Add monitoring and alerts for crashes, stale market data, repeated API errors, halted state, and unexpected open exposure.
-- [ ] Run unit tests, paper trading, and a backtest with real historical data and account-specific fees/slippage assumptions.
+- [ ] Run unit tests, paper trading, and a backtest with real historical data and account-specific fees/slippage assumptions. New mocked tests cover the live-order fail-closed guard; CI results still need verification.
 - [ ] Review all changes in a pull request and verify that CI is green before any separate authorization to consider live mode.
 
 ## Current known limitations to resolve
